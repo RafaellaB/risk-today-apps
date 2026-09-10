@@ -640,8 +640,12 @@ with tab_mapa:
 
         legenda_card = "acumulado API CEMADEN" if usou_api_cemaden else "acumulado local"
 
-        # Coleta dados horários completos do modelo NOAA GFS via Open-Meteo
-        df_noaa = buscar_previsao_noaa_openmeteo()
+        # Coleta a previsão no ponto geográfico da estação selecionada.
+        coord_atual = COORDENADAS_ESTACOES.get(bairro, [-8.05, -34.90])
+        df_noaa = buscar_previsao_noaa_openmeteo(
+            lat=coord_atual[0],
+            lon=coord_atual[1]
+        )
         
         html_prev_itens = ""
         temp_atual_str = "--°C"
@@ -689,7 +693,11 @@ with tab_mapa:
             msg_indisponivel = "Dados NOAA indisponíveis." if idioma_sel == "Português" else "NOAA data unavailable."
             html_prev_itens = f"<div style='color: var(--ink-500); font-size: 0.8rem;'>{msg_indisponivel}</div>"
 
-        titulo_card_noaa = "Recife • Previsão NOAA" if idioma_sel == "Português" else "Recife • NOAA Forecast"
+        titulo_card_noaa = (
+            f"{bairro} • Previsão NOAA"
+            if idioma_sel == "Português"
+            else f"{bairro} • NOAA Forecast"
+        )
 
         # Layout do Topo com o Card Nativo Expandido e Rodapé Separado com Segurança
         col_widget, col_cards = st.columns([1.6, 2.4], gap="medium", vertical_alignment="center")
@@ -745,7 +753,6 @@ with tab_mapa:
         with analise_col:
             st.markdown(f"<h4>{t['titulo_umidade']}</h4>", unsafe_allow_html=True)
             
-            coord_atual = COORDENADAS_ESTACOES.get(bairro, [-8.05, -34.90])
             dados_meteo = buscar_umidade_openmeteo(coord_atual[0], coord_atual[1])
             
             sup, trans, inter, prof = extrair_umidade_hora_atual(dados_meteo, agora)
@@ -771,19 +778,41 @@ with tab_mapa:
                 x_grid, y_grid = np.arange(0, lim_x, 1), np.linspace(0, lim_y, 100)
                 z_grid = np.array([x * y for y in y_grid for x in x_grid]).reshape(len(y_grid), len(x_grid))
 
+                # Fundo do diagrama (mantido intacto)
                 fig.add_trace(go.Heatmap(x=x_grid, y=y_grid, z=z_grid, colorscale=[[0, "#90EE90"], [0.3, "#FFD700"], [0.5, "#FFA500"], [1.0, "#D32F2F"]], showscale=False, zmin=0, zmax=100, hoverinfo="none"))
 
+                # Linha de trajeto histórico (mantida intacta)
                 fig.add_trace(go.Scatter(x=historico_bairro['VP'], y=historico_bairro['AM_real'], mode='lines', line=dict(color='black', width=1, dash='dash'), hoverinfo='none', showlegend=False))
 
                 mapa_de_cores = {'Alto': '#D32F2F', 'Moderado Alto': '#FFA500', 'Moderado': '#FFC107', 'Baixo': '#4CAF50'}
 
-                for _, ponto in historico_bairro.iterrows():
+                total_pontos = len(historico_bairro)
+
+                # Loop para plotar os pontos com destaque diferenciado para os 2 últimos
+                for idx, (_, ponto) in enumerate(historico_bairro.iterrows()):
                     cor_ponto = mapa_de_cores.get(ponto['Classificacao_Risco'], 'black')
                     risco_ui_str = RISCO_UI[idioma_sel].get(ponto['Classificacao_Risco'], ponto['Classificacao_Risco'])
+                    
+                    # Identifica se é um dos dois últimos pontos (penúltimo = hora passada, último = hora atual)
+                    is_ultimos_dois = idx >= total_pontos - 2
+
+                    # Configuração dinâmica de destaque visual sem alterar o cálculo
+                    tamanho_bolinha = 14 if is_ultimos_dois else 8
+                    opacidade_ponto = 1.0 if is_ultimos_dois else 0.45
+                    largura_borda = 2.5 if is_ultimos_dois else 1
+                    cor_borda = 'white' if (is_ultimos_dois and is_dark) else 'black'
+
                     fig.add_trace(
                         go.Scatter(
-                            x=[ponto['VP']], y=[ponto['AM_real']], mode='markers',
-                            marker=dict(color=cor_ponto, size=10, line=dict(width=1, color='black')),
+                            x=[ponto['VP']], 
+                            y=[ponto['AM_real']], 
+                            mode='markers',
+                            marker=dict(
+                                color=cor_ponto, 
+                                size=tamanho_bolinha, 
+                                opacity=opacidade_ponto,
+                                line=dict(width=largura_borda, color=cor_borda)
+                            ),
                             hoverinfo='text',
                             hovertext=f"<b>{t['hora']}:</b> {ponto['hora_ref']}<br><b>{t['risco']}:</b> {risco_ui_str}<br><b>VP:</b> {ponto['VP']:.2f}<br><b>AM:</b> {ponto['AM_real']:.2f}",
                             showlegend=False,
