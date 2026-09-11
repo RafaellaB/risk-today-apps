@@ -23,7 +23,7 @@ from retry_requests import retry
 st.set_page_config(
     layout="wide",
     page_title="Risco Hoje - Recife | Risk Today",
-    page_icon="💧",
+    page_icon="📈",
 )
 
 # --- INICIALIZAÇÃO DE ESTADO ---
@@ -75,7 +75,7 @@ TRADUCOES = {
         "t_astronomica": "tábua astronômica",
         "legenda_api": "acumulado API CEMADEN",
         "legenda_local": "acumulado local",
-        "titulo_umidade": "💧 Umidade do Solo Estimada por Perfil",
+        "titulo_umidade": "Umidade do Solo Estimada por Perfil",
         "camada_sup": "Superficial",
         "camada_trans": "Transição",
         "camada_int": "Intermediária",
@@ -781,26 +781,44 @@ with tab_mapa:
                 # Fundo do diagrama (mantido intacto)
                 fig.add_trace(go.Heatmap(x=x_grid, y=y_grid, z=z_grid, colorscale=[[0, "#90EE90"], [0.3, "#FFD700"], [0.5, "#FFA500"], [1.0, "#D32F2F"]], showscale=False, zmin=0, zmax=100, hoverinfo="none"))
 
-                # Linha de trajeto histórico (mantida intacta)
+                # Linha de trajeto histórico geral
                 fig.add_trace(go.Scatter(x=historico_bairro['VP'], y=historico_bairro['AM_real'], mode='lines', line=dict(color='black', width=1, dash='dash'), hoverinfo='none', showlegend=False))
 
                 mapa_de_cores = {'Alto': '#D32F2F', 'Moderado Alto': '#FFA500', 'Moderado': '#FFC107', 'Baixo': '#4CAF50'}
 
                 total_pontos = len(historico_bairro)
 
-                # Loop para plotar os pontos com destaque diferenciado para os 2 últimos
+                # Loop para plotar os pontos
                 for idx, (_, ponto) in enumerate(historico_bairro.iterrows()):
                     cor_ponto = mapa_de_cores.get(ponto['Classificacao_Risco'], 'black')
                     risco_ui_str = RISCO_UI[idioma_sel].get(ponto['Classificacao_Risco'], ponto['Classificacao_Risco'])
                     
-                    # Identifica se é um dos dois últimos pontos (penúltimo = hora passada, último = hora atual)
-                    is_ultimos_dois = idx >= total_pontos - 2
+                    is_ultimo = (idx == total_pontos - 1)
+                    is_penultimo = (idx == total_pontos - 2)
 
-                    # Configuração dinâmica de destaque visual sem alterar o cálculo
-                    tamanho_bolinha = 14 if is_ultimos_dois else 8
-                    opacidade_ponto = 1.0 if is_ultimos_dois else 0.45
-                    largura_borda = 2.5 if is_ultimos_dois else 1
-                    cor_borda = 'white' if (is_ultimos_dois and is_dark) else 'black'
+                    if is_ultimo:
+                        # Camada externa de destaque (Anel/Pulse) para a hora atual
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[ponto['VP']], y=[ponto['AM_real']], mode='markers',
+                                marker=dict(color='rgba(0,0,0,0)', size=22, line=dict(width=2.5, color='white' if is_dark else '#10233d')),
+                                hoverinfo='none', showlegend=False
+                            )
+                        )
+                        tamanho_bolinha = 14
+                        opacidade_ponto = 1.0
+                        largura_borda = 2
+                        cor_borda = 'white' if is_dark else 'black'
+                    elif is_penultimo:
+                        tamanho_bolinha = 11
+                        opacidade_ponto = 0.85
+                        largura_borda = 1.5
+                        cor_borda = 'black'
+                    else:
+                        tamanho_bolinha = 7
+                        opacidade_ponto = 0.4
+                        largura_borda = 1
+                        cor_borda = 'black'
 
                     fig.add_trace(
                         go.Scatter(
@@ -819,6 +837,25 @@ with tab_mapa:
                         )
                     )
 
+                # Seta indicadora de direção ajustada para ficar perfeitamente visível
+                if total_pontos >= 2:
+                    penultimo = historico_bairro.iloc[-2]
+                    ultimo = historico_bairro.iloc[-1]
+                    
+                    fig.add_annotation(
+                        x=ultimo['VP'],
+                        y=ultimo['AM_real'],
+                        ax=penultimo['VP'],
+                        ay=penultimo['AM_real'],
+                        xref="x", yref="y", axref="x", ayref="y",
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1.2,
+                        arrowwidth=2,
+                        standoff=8,  # Mantém a ponta da seta afastada do centro exato da bolinha para não sumir
+                        arrowcolor="#1f7ae0" if not is_dark else "#2e96d6",
+                    )
+
                 chart_font_color = '#e2e8f0' if is_dark else '#344054'
                 chart_grid_color = '#3b556d' if is_dark else 'rgba(148,163,184,0.18)'
 
@@ -835,6 +872,7 @@ with tab_mapa:
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info(t['sem_dados_diagrama'])
+
 
             with st.expander(t['base_metodo'], expanded=False):
                 st.markdown(t['base_desc'])
