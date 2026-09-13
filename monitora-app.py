@@ -169,8 +169,12 @@ with tab_mapa:
     if not df_chuva_raw.empty and not df_am.empty:
         # Mapeamento do código CEMADEN para o nome da estação
         mapa_estacoes = {'261160614A': 'Campina do Barreto', '261160609A': 'Torreão', '261160623A': 'RECIFE - APAC', '261160618A': 'Imbiribeira', '261160603A': 'Dois Irmãos'}
-        if 'codestacao' in df_chuva_raw.columns and 'nomeEstacao' not in df_chuva_raw.columns:
-            df_chuva_raw['nomeEstacao'] = df_chuva_raw['codestacao'].map(mapa_estacoes)
+        if 'codestacao' in df_chuva_raw.columns:
+            nomes_mapeados = df_chuva_raw['codestacao'].astype(str).str.strip().map(mapa_estacoes)
+            if 'nomeEstacao' not in df_chuva_raw.columns:
+                df_chuva_raw['nomeEstacao'] = nomes_mapeados
+            else:
+                df_chuva_raw['nomeEstacao'] = df_chuva_raw['nomeEstacao'].fillna(nomes_mapeados)
 
         datas_processar = sorted(df_chuva_raw['datahora'].dt.strftime('%Y-%m-%d').dropna().unique())
         df_vp = processar_dados_chuva_simplificado(df_chuva_raw, datas_processar, ESTACOES_DESEJADAS)

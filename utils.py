@@ -191,6 +191,22 @@ def carregar_dados_chuva_tempo_real():
             df.rename(columns={'valor': 'valorMedida'}, inplace=True)
         if 'nome' in df.columns and 'nomeEstacao' not in df.columns:
             df.rename(columns={'nome': 'nomeEstacao'}, inplace=True)
+        if 'codestacao' in df.columns:
+            mapa_estacoes = {
+                '261160614A': 'Campina do Barreto',
+                '261160609A': 'Torreão',
+                '261160623A': 'RECIFE - APAC',
+                '261160618A': 'Imbiribeira',
+                '261160603A': 'Dois Irmãos',
+            }
+            nomes_mapeados = df['codestacao'].astype(str).str.strip().map(mapa_estacoes)
+            if 'nomeEstacao' not in df.columns:
+                df['nomeEstacao'] = nomes_mapeados
+            else:
+                df['nomeEstacao'] = df['nomeEstacao'].fillna(nomes_mapeados)
+        if 'valorMedida' in df.columns:
+            df['valorMedida'] = pd.to_numeric(df['valorMedida'], errors='coerce')
+            df = df.dropna(subset=['valorMedida'])
         df['datahora'] = pd.to_datetime(df['datahora'], format='mixed', errors='coerce')
         df = df.dropna(subset=['datahora'])
         return df

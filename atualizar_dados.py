@@ -47,7 +47,14 @@ def atualizar_chuva_tempo_real():
 
     print("Buscando dados recentes do CEMADEN estação por estação (com retentativa)...")
     for codestacao in estacoes_de_recife:
-        params = {'codestacao': codestacao, 'uf': 'PE', 'rede': '11', 'sensor': '10', 'formato': 'JSON'}
+        params = {
+            'codestacao': codestacao,
+            'uf': 'PE',
+            'rede': '11',
+            'sensor': '10',
+            'formato': 'JSON',
+            '_': int(time.time()),
+        }
         sucesso_estacao = False
         
         # Tenta até 3 vezes por estação se houver timeout
@@ -84,12 +91,13 @@ def atualizar_chuva_tempo_real():
         return
 
     # Tratamento de fuso horário
-    df_final['datahora'] = pd.to_datetime(df_final['datahora'])
-    df_final['datahora'] = df_final['datahora'].dt.tz_localize('UTC').dt.tz_convert('America/Recife')
-    df_final['datahora'] = df_final['datahora'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    df_final['datahora'] = pd.to_datetime(df_final['datahora'], errors='coerce', utc=True)
+    df_final = df_final.dropna(subset=['datahora'])
+    df_final['datahora'] = df_final['datahora'].dt.tz_convert('America/Recife').dt.strftime('%Y-%m-%d %H:%M:%S')
 
     # Mapeia o nome amigável da estação
     if 'codestacao' in df_final.columns:
+        df_final['codestacao'] = df_final['codestacao'].astype(str).str.strip()
         df_final['nomeEstacao'] = df_final['codestacao'].map(mapa_estacoes)
 
     # Padroniza a coluna exigida pelos cálculos originais do app
@@ -98,6 +106,16 @@ def atualizar_chuva_tempo_real():
             if col_alt in df_final.columns:
                 df_final['valorMedida'] = df_final[col_alt]
                 break
+
+    if 'valorMedida' not in df_final.columns:
+        print("Resposta do CEMADEN sem coluna de medição; nenhum registro foi gravado.")
+        return
+
+    df_final['valorMedida'] = pd.to_numeric(df_final['valorMedida'], errors='coerce')
+    df_final = df_final[df_final['codestacao'].isin(estacoes_de_recife)].dropna(subset=['valorMedida'])
+    if df_final.empty:
+        print("Resposta do CEMADEN sem valores de chuva válidos; nenhum registro foi gravado.")
+        return
 
     tz_recife = timezone('America/Recife')
     agora = datetime.now(tz_recife)
