@@ -7,6 +7,11 @@ from datetime import datetime
 from pytz import timezone
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
 BASE_DIR = Path(__file__).resolve().parent
 ARQUIVO_TEMPO_REAL = BASE_DIR / 'chuva_tempo_real.csv'
 
@@ -14,6 +19,15 @@ def obter_token_cemaden():
     """Obtém o token de autenticação da API do CEMADEN."""
     email = os.getenv("CEMADEN_EMAIL")
     senha = os.getenv("CEMADEN_PASS")
+    secrets_path = BASE_DIR / '.streamlit' / 'secrets.toml'
+    if (not email or not senha) and secrets_path.exists():
+        try:
+            with secrets_path.open('rb') as arquivo:
+                secrets = tomllib.load(arquivo)
+            email = email or secrets.get('CEMADEN_EMAIL')
+            senha = senha or secrets.get('CEMADEN_PASS')
+        except (OSError, tomllib.TOMLDecodeError):
+            pass
     if not email or not senha:
         return None
     try:
