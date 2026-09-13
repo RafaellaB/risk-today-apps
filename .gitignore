@@ -1,3 +1,7 @@
-historico_risco.csv
+# Cache do Python e ambiente virtual
 __pycache__/
+.cache/
+.venv/
+
+# Credenciais sensíveis
 .streamlit/secrets.toml

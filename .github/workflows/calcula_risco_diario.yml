@@ -1,0 +1,34 @@
+name: 📊 Fechamento e Cálculo de Risco (Diário)
+
+on:
+  schedule:
+    - cron: '15 3 * * *' # Roda todos os dias às 03:15 UTC (00:15 no horário de Recife)
+  workflow_dispatch:
+
+jobs:
+  pipeline_risco_diario:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout do Repositório
+        uses: actions/checkout@v4
+        
+      - name: Configurar Python e Instalar Dependências
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install requests pandas pytz numpy
+        
+      - name: ⚙️ Executar script de consolidação e limpeza
+        run: python calcular_risco_diario.py
+        
+      - name: 🚀 Fazer commit e push das alterações no histórico e tempo real
+        run: |
+          git config --global user.name 'GitHub Actions Bot'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          git add historico_risco-final.csv chuva_tempo_real.csv
+          git commit -m "Automacao: Fechamento diário, incremento no histórico e reset do tempo real [skip ci]" || exit 0
+          git push
