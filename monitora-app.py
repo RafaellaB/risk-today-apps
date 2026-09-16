@@ -158,7 +158,7 @@ tab_mapa, tab_hist, tab_pub = st.tabs([t['tab_map'], t['tab_hist'], t['tab_pub']
 # ABA 1: RISCO HOJE (TEMPO REAL - HOJE)
 # ==========================================
 with tab_mapa:
-    fuso = pytz.timezone('America/Recife') 
+    fuso = pytz.timezone('America/Recife')
     agora = datetime.now(fuso)
     data_hoje_str = agora.strftime('%Y-%m-%d')
 
@@ -167,7 +167,6 @@ with tab_mapa:
     df_final = pd.DataFrame()
 
     if not df_chuva_raw.empty and not df_am.empty:
-        # Mapeamento do código CEMADEN para o nome da estação
         mapa_estacoes = {'261160614A': 'Campina do Barreto', '261160609A': 'Torreão', '261160623A': 'RECIFE - APAC', '261160618A': 'Imbiribeira', '261160603A': 'Dois Irmãos'}
         if 'codestacao' in df_chuva_raw.columns:
             nomes_mapeados = df_chuva_raw['codestacao'].astype(str).str.strip().map(mapa_estacoes)
@@ -184,7 +183,7 @@ with tab_mapa:
         df_final['AM_calc'] = df_final['AM_real']
         df_final.loc[df_final['AM_calc'].notna() & (df_final['AM_calc'] < 1), 'AM_calc'] = 1
         df_final['Nivel_Risco_Valor'] = (df_final['VP'] * df_final['AM_calc']).fillna(0)
-        
+       
         bins = [-np.inf, 30, 50, 100, np.inf]
         df_final['Classificacao_Risco'] = pd.cut(df_final['Nivel_Risco_Valor'], bins=bins, labels=['Baixo', 'Moderado', 'Moderado Alto', 'Alto'])
 
@@ -197,7 +196,7 @@ with tab_mapa:
 
         df_hoje = df_final[df_final['data'] == data_hoje_str]
         historico_bairro = df_hoje[df_hoje['nomeEstacao'] == bairro].sort_values(by='hora_ref')
-        
+       
         hora_mare_atual = agora.strftime('%H:00:00')
         mare_hora_atual = df_am[(df_am['data'] == data_hoje_str) & (df_am['hora_ref'] == hora_mare_atual)]
         mare_atual = float(mare_hora_atual.iloc[0]['AM']) if not mare_hora_atual.empty else 0.0
@@ -223,14 +222,14 @@ with tab_mapa:
 
         coord_atual = COORDENADAS_ESTACOES.get(bairro, [-8.05, -34.90])
         df_noaa = buscar_previsao_noaa_openmeteo(lat=coord_atual[0], lon=coord_atual[1])
-        
+       
         html_prev_itens, temp_atual_str, condicao_atual_str, icone_atual_str = "", "--°C", "Carregando..." if idioma_sel == "Português" else "Loading...", "☀️"
         if not df_noaa.empty:
             agora_utc = pd.Timestamp.now(tz="America/Recife")
             idx_atual = (df_noaa['date'] - agora_utc).abs().idxmin()
             temp_atual_str = f"{df_noaa.loc[idx_atual, 'temperature_2m']:.0f}°C"
             icone_atual_str, condicao_atual_str = interpretar_codigo_clima(df_noaa.loc[idx_atual, 'weather_code'], df_noaa.loc[idx_atual, 'precipitation_probability'], df_noaa.loc[idx_atual, 'precipitation'], df_noaa.loc[idx_atual, 'date'].hour, idioma_sel)
-            
+           
             for i in range(idx_atual, min(idx_atual + 24, len(df_noaa))):
                 row = df_noaa.iloc[i]
                 ico_item, _ = interpretar_codigo_clima(row['weather_code'], row['precipitation_probability'], row['precipitation'], row['date'].hour, idioma_sel)
@@ -238,7 +237,7 @@ with tab_mapa:
 
         titulo_card_noaa = f"{bairro} • Previsão NOAA" if idioma_sel == "Português" else f"{bairro} • NOAA Forecast"
         col_widget, col_cards = st.columns([1.6, 2.4], gap="medium", vertical_alignment="center")
-        
+       
         with col_widget:
             st.markdown(f'<div class="mini-card" style="padding: 0.6rem 0.9rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 125px;"><div style="display: flex; justify-content: space-between; align-items: center;"><div><div class="mini-label">{titulo_card_noaa}</div><div style="display: flex; align-items: baseline; gap: 8px; margin-top: 1px;"><span style="font-size: 1.45rem; font-weight: 900; color: var(--ink-900);">{temp_atual_str}</span><span style="font-size: 0.8rem; font-weight: 700; color: var(--ink-700);">{condicao_atual_str}</span></div></div><div style="font-size: 2.1rem; line-height: 1;">{icone_atual_str}</div></div><div style="display: flex; justify-content: flex-start; align-items: center; border-top: 1px solid var(--line); padding-top: 6px; margin-top: 4px; overflow-x: auto; gap: 8px; scrollbar-width: thin;">{html_prev_itens}</div></div>', unsafe_allow_html=True)
             st.caption("Fonte: Modelo NOAA GFS (Open-Meteo). *Por se tratar de uma projeção numérica, podem ocorrer variações locais.*" if idioma_sel == "Português" else "Source: NOAA GFS Model (Open-Meteo). *As a numerical projection, local variations may occur.*")
@@ -249,7 +248,7 @@ with tab_mapa:
             with topo3: _mini_card(t['chuva_24h'], f"{chuva_24h:.1f} mm", legenda_card)
             with topo4: _mini_card(t['chuva_12h'], f"{chuva_12h:.1f} mm", legenda_card)
             with topo5: _mini_card(t['mare_atual'], f"{mare_atual:.2f} m", t['t_astronomica'])
-        
+       
         st.markdown("<hr style='margin: 0.55rem 0 1rem; border: 0; border-top: 1px solid var(--line);'>", unsafe_allow_html=True)
         analise_col, mapa_col = st.columns([1.5, 1], gap="large")
 
@@ -301,14 +300,12 @@ with tab_mapa:
         with mapa_col:
             st.markdown("<div style='height: 60px;'></div>", unsafe_allow_html=True)
 
-            #o alerta da situação:
             if risco_atual == 'Alto': st.markdown(f"<div class='alert-critical'>{t['alerta_critico'].format(bairro)}</div>", unsafe_allow_html=True)
             elif risco_atual in ['Moderado Alto', 'Moderado']: st.markdown(f"<div class='alert-warning'>{t['alerta_atencao'].format(bairro)}</div>", unsafe_allow_html=True)
             else: st.markdown(f"<div class='alert-success'>{t['alerta_normal'].format(bairro)}</div>", unsafe_allow_html=True)
 
-            #distancia entre a mensagem e o mapa
             st.markdown("<div style='height: 70px;'></div>", unsafe_allow_html=True)
-            
+           
             m = folium.Map(location=[-8.05, -34.90], zoom_start=12, tiles='OpenStreetMap')
             m.get_root().header.add_child(folium.Element("""
                 <style>
@@ -328,7 +325,7 @@ with tab_mapa:
                 r_est = riscos_atuais.get(est_nome, 'Baixo')
                 icon_color = 'red' if r_est == 'Alto' else ('orange' if r_est in ['Moderado Alto', 'Moderado'] else 'green')
                 folium.Marker(location=coords, icon=folium.Icon(color=icon_color, icon='info-sign' if est_nome == bairro else 'map-marker'), popup=folium.Popup(f"<b>{est_nome}</b><br>{t['popup_risco']}: {RISCO_UI[idioma_sel].get(r_est, r_est)}", max_width=250), tooltip=est_nome).add_to(m)
-            
+           
             mapa_interativo = st_folium(m, height=450, width="100%", returned_objects=["last_object_clicked"])
             if mapa_interativo and mapa_interativo.get("last_object_clicked"):
                 est_clicada = min(COORDENADAS_ESTACOES.keys(), key=lambda k: (COORDENADAS_ESTACOES[k][0] - mapa_interativo["last_object_clicked"]["lat"])**2 + (COORDENADAS_ESTACOES[k][1] - mapa_interativo["last_object_clicked"]["lng"])**2)
@@ -354,8 +351,11 @@ with tab_hist:
             st.info("Ainda não há dados históricos disponíveis no arquivo.")
         else:
             min_data_disp = pd.to_datetime(df_passado['data']).min().date()
+            max_data_disp = pd.to_datetime(df_passado['data']).max().date()
             
-            default_inicio = max(min_data_disp, pd.to_datetime('2026-05-01').date()) if min_data_disp <= pd.to_datetime('2026-05-01').date() else min_data_disp
+            # Pega dinamicamente o primeiro registro real do histórico como início e o último válido como fim
+            default_inicio = min_data_disp
+            limite_fim_hist = min(max_data_permitida, max_data_disp)
 
             st.markdown("<p class='history-instruction'>Selecione o período desejado, escolha as estações e clique em Gerar para visualizar os diagramas históricos.</p>", unsafe_allow_html=True)
             
@@ -366,9 +366,9 @@ with tab_hist:
                     st.markdown("<p class='history-label'>Período</p>", unsafe_allow_html=True)
                     intervalo_datas = st.date_input(
                         "Período" if idioma_sel == "Português" else "Date range",
-                        value=(default_inicio, max_data_permitida),
+                        value=(default_inicio, limite_fim_hist),
                         min_value=min_data_disp,
-                        max_value=max_data_permitida,
+                        max_value=limite_fim_hist,
                         format="YYYY-MM-DD",
                         label_visibility="collapsed",
                         key="historico_intervalo_datas"
@@ -459,7 +459,6 @@ with tab_hist:
                                         yaxis=dict(gridcolor='#3b556d' if is_dark else 'rgba(148,163,184,0.18)', zeroline=False)
                                     )
                                     st.plotly_chart(fig_hist, use_container_width=True)
-
 # ==========================================
 # ABA 3: METODOLOGIA
 # ==========================================
