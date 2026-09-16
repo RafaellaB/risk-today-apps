@@ -182,7 +182,7 @@ def carregar_dados_mare_cache(caminho_am_data):
 
 @st.cache_data(ttl=60, show_spinner=False) 
 def carregar_dados_chuva_tempo_real():
-    """Lê o arquivo rotativo diário de tempo real para a aba Risco Hoje"""
+    """Lê o arquivo rotativo único do dia atual"""
     if not ARQUIVO_TEMPO_REAL.exists():
         return pd.DataFrame()
     try:
@@ -208,8 +208,7 @@ def carregar_dados_chuva_tempo_real():
             df['valorMedida'] = pd.to_numeric(df['valorMedida'], errors='coerce')
             df = df.dropna(subset=['valorMedida'])
         df['datahora'] = pd.to_datetime(df['datahora'], format='mixed', errors='coerce')
-        df = df.dropna(subset=['datahora'])
-        return df
+        return df.dropna(subset=['datahora'])
     except Exception:
         return pd.DataFrame()
 
