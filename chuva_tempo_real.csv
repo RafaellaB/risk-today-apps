@@ -1,1 +1,7 @@
-datahora,codestacao,nomeEstacao,valorMedida
+datahora,codestacao,nomeEstacao,valorMedida,cidade,id_sensor,latitude,longitude,nome,offset,qualificacao,uf,valor
+2026-09-17 04:40:00,261160609A,Torreão,0.0,RECIFE,10.0,-8.120975,-34.913983,Imbiribeira,,0000,PE,0.0
+2026-09-17 05:40:00,261160609A,Torreão,0.0,RECIFE,10.0,-8.120975,-34.913983,Imbiribeira,,0000,PE,0.0
+2026-09-17 06:50:00,261160609A,Torreão,0.0,RECIFE,10.0,-8.120975,-34.913983,Imbiribeira,,0000,PE,0.0
+2026-09-17 05:00:00,261160618A,Imbiribeira,0.0,RECIFE,10.0,-8.037,-34.884,Torreão,,0000,PE,0.0
+2026-09-17 06:00:00,261160618A,Imbiribeira,0.0,RECIFE,10.0,-8.037,-34.884,Torreão,,0000,PE,0.0
+2026-09-17 07:00:00,261160618A,Imbiribeira,0.0,RECIFE,10.0,-8.037,-34.884,Torreão,,0000,PE,0.0
