@@ -1,11 +1,1 @@
-datahora,codestacao,nomeEstacao,valorMedida,cidade,id_sensor,latitude,longitude,nome,offset,qualificacao,uf,valor
-2026-09-19 01:30:00,261160614A,Campina do Barreto,0.0,RECIFE,10.0,-8.013,-34.881,Campina do Barreto,,0000,PE,0.0
-2026-09-19 02:30:00,261160614A,Campina do Barreto,0.0,RECIFE,10.0,-8.013,-34.881,Campina do Barreto,,0000,PE,0.0
-2026-09-19 03:30:00,261160614A,Campina do Barreto,0.0,RECIFE,10.0,-8.013,-34.881,Campina do Barreto,,0000,PE,0.0
-2026-09-19 00:40:00,261160609A,Torreão,0.0,RECIFE,10.0,-8.120975,-34.913983,Imbiribeira,,0000,PE,0.0
-2026-09-19 01:40:00,261160609A,Torreão,0.0,RECIFE,10.0,-8.120975,-34.913983,Imbiribeira,,0000,PE,0.0
-2026-09-19 02:40:00,261160609A,Torreão,0.0,RECIFE,10.0,-8.120975,-34.913983,Imbiribeira,,0000,PE,0.0
-2026-09-19 03:40:00,261160609A,Torreão,0.0,RECIFE,10.0,-8.120975,-34.913983,Imbiribeira,,0000,PE,0.0
-2026-09-19 01:00:00,261160618A,Imbiribeira,0.0,RECIFE,10.0,-8.037,-34.884,Torreão,,0000,PE,0.0
-2026-09-19 02:00:00,261160618A,Imbiribeira,0.0,RECIFE,10.0,-8.037,-34.884,Torreão,,0000,PE,0.0
-2026-09-19 03:00:00,261160618A,Imbiribeira,0.0,RECIFE,10.0,-8.037,-34.884,Torreão,,0000,PE,0.0
+datahora,codestacao,nomeEstacao,valorMedida
