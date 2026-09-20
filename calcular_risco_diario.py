@@ -6,11 +6,13 @@ from pathlib import Path
 from io import StringIO
 import numpy as np
 
+
 BASE_DIR = Path(__file__).resolve().parent
 ARQUIVO_HISTORICO = BASE_DIR / 'historico_risco-final.csv'
 ARQUIVO_TEMPO_REAL = BASE_DIR / 'chuva_tempo_real.csv'
 URL_ARQUIVO_MARE = 'https://raw.githubusercontent.com/RafaellaB/risco-hoje/main/tide/mare_calculada_hora_em_hora_ano-completo.csv'
 ESTACOES_DESEJADAS = ["Campina do Barreto", "Torreão", "RECIFE - APAC", "Imbiribeira", "Dois Irmãos"]
+
 
 MAPA_ESTACOES = {
     '261160614A': 'Campina do Barreto', 
@@ -20,12 +22,14 @@ MAPA_ESTACOES = {
     '261160603A': 'Dois Irmãos'
 }
 
+
 def consolidar_dia_anterior():
     fuso = pytz.timezone('America/Recife')
     ontem = datetime.now(fuso) - timedelta(days=1)
     data_alvo_str = ontem.strftime('%Y-%m-%d')
     
     print(f"Iniciando fechamento e consolidação do dia: {data_alvo_str}")
+
 
     # 1. Carrega dados de maré
     try:
@@ -43,10 +47,12 @@ def consolidar_dia_anterior():
         print(f"Erro ao carregar maré: {e}")
         return
 
+
     # 2. Carrega os dados de chuva do arquivo temporário em tempo real
     if not ARQUIVO_TEMPO_REAL.exists():
         print("Arquivo `chuva_tempo_real.csv` não encontrado.")
         return
+
 
     try:
         df_chuva = pd.read_csv(ARQUIVO_TEMPO_REAL, encoding='utf-8')
@@ -63,9 +69,11 @@ def consolidar_dia_anterior():
             df_chuva['codestacao'] = df_chuva['codestacao'].astype(str).str.strip()
             df_chuva['nomeEstacao'] = df_chuva['codestacao'].map(MAPA_ESTACOES)
 
+
     except Exception as e:
         print(f"Erro ao ler chuva acumulada: {e}")
         return
+
 
     # 3. Processa VP (Valor de Precipitação) das 00h às 23h para o dia alvo
     df_chuva = df_chuva[df_chuva['nomeEstacao'].isin(ESTACOES_DESEJADAS)].copy()
@@ -77,6 +85,7 @@ def consolidar_dia_anterior():
         # Mesmo sem chuva, reseta o arquivo do dia para limpar para o novo ciclo
         pd.DataFrame(columns=['datahora', 'codestacao', 'nomeEstacao', 'valorMedida']).to_csv(ARQUIVO_TEMPO_REAL, index=False)
         return
+
 
     df_chuva = df_chuva.set_index('datahora').sort_index()
     resultados = []
@@ -94,6 +103,7 @@ def consolidar_dia_anterior():
     df_vp['data'] = df_vp['datahora'].dt.strftime('%Y-%m-%d')
     df_vp['hora_ref'] = df_vp['datahora'].dt.strftime('%H:00:00')
 
+
     # 4. Junta chuva e maré e calcula o risco (mantendo rigorosamente a regra matemática original)
     df_final = pd.merge(df_vp, df_am, on=['data', 'hora_ref'], how='left')
     df_final['AM_real'] = df_final['AM']
@@ -107,6 +117,7 @@ def consolidar_dia_anterior():
     
     df_novo_dia = df_final[['data', 'hora_ref', 'nomeEstacao', 'VP', 'AM', 'Nivel_Risco_Valor', 'Classificacao_Risco']]
 
+
     # 5. Atualiza o arquivo historico_risco-final.csv (Garante o envio dos dados consolidados primeiro)
     if ARQUIVO_HISTORICO.exists():
         try:
@@ -118,13 +129,16 @@ def consolidar_dia_anterior():
     else:
         df_atualizado = df_novo_dia
 
+
     df_atualizado.sort_values(by=['data', 'hora_ref'], inplace=True)
     df_atualizado.to_csv(ARQUIVO_HISTORICO, index=False)
     print(f"✅ Histórico `historico_risco-final.csv` atualizado com sucesso para o dia {data_alvo_str}!")
 
+
     # 6. SOMENTE APÓS O SUCESSO DO HISTÓRICO: Reseta o arquivo de tempo real para começar o novo dia limpo
     pd.DataFrame(columns=['datahora', 'codestacao', 'nomeEstacao', 'valorMedida']).to_csv(ARQUIVO_TEMPO_REAL, index=False)
     print("🧹 Arquivo `chuva_tempo_real.csv` limpo e zerado para gravar apenas o novo dia.")
+
 
 if __name__ == "__main__":
     consolidar_dia_anterior()

@@ -10,7 +10,9 @@ from retry_requests import retry
 from io import StringIO
 from pathlib import Path
 
+
 BASE_DIR = Path(__file__).resolve().parent
+
 
 # Constantes de dados
 
@@ -22,7 +24,19 @@ ARQUIVO_HISTORICO_FINAL = BASE_DIR / 'historico_risco-final.csv'
 ARQUIVO_TEMPO_REAL = BASE_DIR / 'chuva_tempo_real.csv'
 DATA_INICIO_LOCAL = '2026-05-01'
 
+
 ESTACOES_DESEJADAS = ["Campina do Barreto", "Torreão", "RECIFE - APAC", "Imbiribeira", "Dois Irmãos"]
+
+
+# Mapeamento de estações para códigos CEMADEN
+ESTACOES_CODIGOS_CEMADEN = {
+    "Campina do Barreto": "261160614A",
+    "Torreão": "261160609A",
+    "RECIFE - APAC": "261160623A",
+    "Imbiribeira": "261160618A",
+    "Dois Irmãos": "261160603A",
+}
+
 
 COORDENADAS_ESTACOES = {
     "Campina do Barreto": [-8.013000, -34.881000],
@@ -31,6 +45,7 @@ COORDENADAS_ESTACOES = {
     "Imbiribeira": [-8.120975, -34.913983],
     "Dois Irmãos": [-8.018378, -34.947058]
 }
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def obter_token_cemaden():
@@ -50,21 +65,75 @@ def obter_token_cemaden():
     except Exception: pass
     return None
 
+
 @st.cache_data(ttl=300, show_spinner=False)
-def carregar_acumulados_api_cemaden(token, codibge='2611606'):
+def carregar_dados_recentes_api_cemaden(token, codestacao='261160614A'):
+    """
+    Carrega dados RECENTES (brutos, múltiplas medições) de UMA estação específica.
+    Endpoint: /pcds/pcds-dados-recentes
+    Usado para: alimentar o arquivo chuva_tempo_real.csv e cálculos horários
+    """
     if not token: return pd.DataFrame()
-    url = 'https://sws.cemaden.gov.br/PED/rest/pcds-acum/acumulados-recentes'
+    
+    url = 'https://sws.cemaden.gov.br/PED/rest/pcds/pcds-dados-recentes'
     headers = {'token': token}
-    params = {'codibge': codibge, 'formato': 'CSV'} # Solicitando diretamente em CSV
+    params = {'codestacao': codestacao, 'formato': 'CSV'}
+    
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
         if response.status_code == 200 and response.text.strip():
-            # Lê o texto CSV retornado diretamente em um DataFrame
             df = pd.read_csv(StringIO(response.text))
             return df
     except Exception as e:
-        print(f"Erro ao carregar CSV do CEMADEN: {e}")
+        print(f"Erro ao carregar CSV do CEMADEN (dados recentes): {e}")
     return pd.DataFrame()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def carregar_todas_estacoes_recentes(token):
+    """
+    Carrega dados RECENTES de TODAS as estações desejadas.
+    Retorna DataFrame concatenado com coluna 'nomeEstacao' preenchida.
+    Usado pela aba 1 (tempo real)
+    """
+    if not token: return pd.DataFrame()
+    
+    dfs_estacoes = []
+    
+    for nome_estacao, cod_estacao in ESTACOES_CODIGOS_CEMADEN.items():
+        df = carregar_dados_recentes_api_cemaden(token, codestacao=cod_estacao)
+        if not df.empty:
+            df['nomeEstacao'] = nome_estacao
+            dfs_estacoes.append(df)
+    
+    if dfs_estacoes:
+        return pd.concat(dfs_estacoes, ignore_index=True)
+    
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def carregar_acumulados_api_cemaden(token, codibge='2611606'):
+    """
+    Carrega dados ACUMULADOS (totais por estação) de TODAS as estações de uma cidade.
+    Endpoint: /pcds-acum/acumulados-recentes
+    Usado para: cards de acumulados 12h e 24h
+    """
+    if not token: return pd.DataFrame()
+    
+    url = 'https://sws.cemaden.gov.br/PED/rest/pcds-acum/acumulados-recentes'
+    headers = {'token': token}
+    params = {'codibge': codibge, 'formato': 'CSV'}
+    
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=15)
+        if response.status_code == 200 and response.text.strip():
+            df = pd.read_csv(StringIO(response.text))
+            return df
+    except Exception as e:
+        print(f"Erro ao carregar CSV do CEMADEN (acumulados): {e}")
+    return pd.DataFrame()
+
 
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_previsao_noaa_openmeteo(lat=-8.0539, lon=-34.8811):
@@ -72,7 +141,6 @@ def buscar_previsao_noaa_openmeteo(lat=-8.0539, lon=-34.8811):
         cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
         retry_session = retry(cache_session, retries=3, backoff_factor=0.2)
         
-        # URL direta da API REST do Open-Meteo (evita travamentos da biblioteca auxiliar em caso de timeout)
         url = "https://api.open-meteo.com/v1/forecast"
         params = {
             "latitude": lat,
@@ -99,7 +167,6 @@ def buscar_previsao_noaa_openmeteo(lat=-8.0539, lon=-34.8811):
     except Exception as e:
         print(f"Erro ao buscar NOAA para lat {lat}, lon {lon}: {e}")
         
-    # Retorno de segurança para evitar travamento na interface
     horas_dummy = pd.date_range(start=pd.Timestamp.now(tz="America/Recife"), periods=24, freq="h")
     return pd.DataFrame({
         "date": horas_dummy,
@@ -108,6 +175,7 @@ def buscar_previsao_noaa_openmeteo(lat=-8.0539, lon=-34.8811):
         "precipitation": [0.0] * 24,
         "weather_code": [0] * 24
     })
+
 
 def interpretar_codigo_clima(codigo, probabilidade_chuva=0, volume_chuva=0.0, hora_atual=12, idioma="Português"):
     import pytz
@@ -129,6 +197,7 @@ def interpretar_codigo_clima(codigo, probabilidade_chuva=0, volume_chuva=0.0, ho
     else:
         return ("🌙" if eh_noite else "☀️"), "Fair" if idioma == "English" else "Bom"
 
+
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_umidade_openmeteo(lat, lon):
     url = "https://api.open-meteo.com/v1/forecast"
@@ -143,6 +212,7 @@ def buscar_umidade_openmeteo(lat, lon):
     except Exception: pass
     return None
 
+
 def extrair_umidade_hora_atual(dados_json, datahora_alvo):
     import pytz
     if not dados_json or "hourly" not in dados_json: 
@@ -156,6 +226,7 @@ def extrair_umidade_hora_atual(dados_json, datahora_alvo):
         return float(reg["soil_moisture_0_to_1cm"]), float(reg["soil_moisture_1_to_3cm"]), float(reg["soil_moisture_3_to_9cm"]), float(reg["soil_moisture_27_to_81cm"])
     except Exception:
         return 0.0, 0.0, 0.0, 0.0
+
 
 @st.cache_data(show_spinner=False)
 def carregar_dados_mare_cache(caminho_am_data):
@@ -179,6 +250,7 @@ def carregar_dados_mare_cache(caminho_am_data):
         df['AM'] = pd.to_numeric(df['AM'].astype(str).str.replace(',', '.'), errors='coerce')
         return df[['data', 'hora_ref', 'AM']]
     except: return pd.DataFrame()
+
 
 @st.cache_data(ttl=60, show_spinner=False) 
 def carregar_dados_chuva_tempo_real():
@@ -212,6 +284,7 @@ def carregar_dados_chuva_tempo_real():
     except Exception:
         return pd.DataFrame()
 
+
 def processar_dados_chuva_simplificado(df_chuva, datas_desejadas, estacoes_desejadas):
     if df_chuva.empty: return pd.DataFrame()
     df = df_chuva[df_chuva['nomeEstacao'].isin(estacoes_desejadas)].copy()
@@ -230,6 +303,7 @@ def processar_dados_chuva_simplificado(df_chuva, datas_desejadas, estacoes_desej
     df_vp['data'] = df_vp['datahora'].dt.strftime('%Y-%m-%d')
     df_vp['hora_ref'] = df_vp['datahora'].dt.strftime('%H:00:00')
     return df_vp
+
 
 @st.cache_data(show_spinner=False)
 def carregar_historico_consolidado():

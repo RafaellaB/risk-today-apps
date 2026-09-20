@@ -183,7 +183,7 @@ with tab_mapa:
         df_final['AM_calc'] = df_final['AM_real']
         df_final.loc[df_final['AM_calc'].notna() & (df_final['AM_calc'] < 1), 'AM_calc'] = 1
         df_final['Nivel_Risco_Valor'] = (df_final['VP'] * df_final['AM_calc']).fillna(0)
-       
+        
         bins = [-np.inf, 30, 50, 100, np.inf]
         df_final['Classificacao_Risco'] = pd.cut(df_final['Nivel_Risco_Valor'], bins=bins, labels=['Baixo', 'Moderado', 'Moderado Alto', 'Alto'])
 
@@ -196,7 +196,7 @@ with tab_mapa:
 
         df_hoje = df_final[df_final['data'] == data_hoje_str]
         historico_bairro = df_hoje[df_hoje['nomeEstacao'] == bairro].sort_values(by='hora_ref')
-       
+        
         hora_mare_atual = agora.strftime('%H:00:00')
         mare_hora_atual = df_am[(df_am['data'] == data_hoje_str) & (df_am['hora_ref'] == hora_mare_atual)]
         mare_atual = float(mare_hora_atual.iloc[0]['AM']) if not mare_hora_atual.empty else 0.0
@@ -222,14 +222,14 @@ with tab_mapa:
 
         coord_atual = COORDENADAS_ESTACOES.get(bairro, [-8.05, -34.90])
         df_noaa = buscar_previsao_noaa_openmeteo(lat=coord_atual[0], lon=coord_atual[1])
-       
+        
         html_prev_itens, temp_atual_str, condicao_atual_str, icone_atual_str = "", "--°C", "Carregando..." if idioma_sel == "Português" else "Loading...", "☀️"
         if not df_noaa.empty:
             agora_utc = pd.Timestamp.now(tz="America/Recife")
             idx_atual = (df_noaa['date'] - agora_utc).abs().idxmin()
             temp_atual_str = f"{df_noaa.loc[idx_atual, 'temperature_2m']:.0f}°C"
             icone_atual_str, condicao_atual_str = interpretar_codigo_clima(df_noaa.loc[idx_atual, 'weather_code'], df_noaa.loc[idx_atual, 'precipitation_probability'], df_noaa.loc[idx_atual, 'precipitation'], df_noaa.loc[idx_atual, 'date'].hour, idioma_sel)
-           
+            
             for i in range(idx_atual, min(idx_atual + 24, len(df_noaa))):
                 row = df_noaa.iloc[i]
                 ico_item, _ = interpretar_codigo_clima(row['weather_code'], row['precipitation_probability'], row['precipitation'], row['date'].hour, idioma_sel)
@@ -237,7 +237,7 @@ with tab_mapa:
 
         titulo_card_noaa = f"{bairro} • Previsão NOAA" if idioma_sel == "Português" else f"{bairro} • NOAA Forecast"
         col_widget, col_cards = st.columns([1.6, 2.4], gap="medium", vertical_alignment="center")
-       
+        
         with col_widget:
             st.markdown(f'<div class="mini-card" style="padding: 0.6rem 0.9rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 125px;"><div style="display: flex; justify-content: space-between; align-items: center;"><div><div class="mini-label">{titulo_card_noaa}</div><div style="display: flex; align-items: baseline; gap: 8px; margin-top: 1px;"><span style="font-size: 1.45rem; font-weight: 900; color: var(--ink-900);">{temp_atual_str}</span><span style="font-size: 0.8rem; font-weight: 700; color: var(--ink-700);">{condicao_atual_str}</span></div></div><div style="font-size: 2.1rem; line-height: 1;">{icone_atual_str}</div></div><div style="display: flex; justify-content: flex-start; align-items: center; border-top: 1px solid var(--line); padding-top: 6px; margin-top: 4px; overflow-x: auto; gap: 8px; scrollbar-width: thin;">{html_prev_itens}</div></div>', unsafe_allow_html=True)
             st.caption("Fonte: Modelo NOAA GFS (Open-Meteo). *Por se tratar de uma projeção numérica, podem ocorrer variações locais.*" if idioma_sel == "Português" else "Source: NOAA GFS Model (Open-Meteo). *As a numerical projection, local variations may occur.*")
@@ -248,7 +248,7 @@ with tab_mapa:
             with topo3: _mini_card(t['chuva_24h'], f"{chuva_24h:.1f} mm", legenda_card)
             with topo4: _mini_card(t['chuva_12h'], f"{chuva_12h:.1f} mm", legenda_card)
             with topo5: _mini_card(t['mare_atual'], f"{mare_atual:.2f} m", t['t_astronomica'])
-       
+        
         st.markdown("<hr style='margin: 0.55rem 0 1rem; border: 0; border-top: 1px solid var(--line);'>", unsafe_allow_html=True)
         analise_col, mapa_col = st.columns([1.5, 1], gap="large")
 
@@ -274,6 +274,7 @@ with tab_mapa:
                 mapa_de_cores = {'Alto': '#D32F2F', 'Moderado Alto': '#FFA500', 'Moderado': '#FFC107', 'Baixo': '#4CAF50'}
                 total_pontos = len(historico_bairro)
 
+                # --- ESTILO ORIGINAL COM DESTAQUE DA ÚLTIMA E PENÚLTIMA HORA ---
                 for idx, (_, ponto) in enumerate(historico_bairro.iterrows()):
                     cor_ponto = mapa_de_cores.get(ponto['Classificacao_Risco'], 'black')
                     risco_ui_str = RISCO_UI[idioma_sel].get(ponto['Classificacao_Risco'], ponto['Classificacao_Risco'])
@@ -305,7 +306,7 @@ with tab_mapa:
             else: st.markdown(f"<div class='alert-success'>{t['alerta_normal'].format(bairro)}</div>", unsafe_allow_html=True)
 
             st.markdown("<div style='height: 70px;'></div>", unsafe_allow_html=True)
-           
+            
             m = folium.Map(location=[-8.05, -34.90], zoom_start=12, tiles='OpenStreetMap')
             m.get_root().header.add_child(folium.Element("""
                 <style>
@@ -325,7 +326,7 @@ with tab_mapa:
                 r_est = riscos_atuais.get(est_nome, 'Baixo')
                 icon_color = 'red' if r_est == 'Alto' else ('orange' if r_est in ['Moderado Alto', 'Moderado'] else 'green')
                 folium.Marker(location=coords, icon=folium.Icon(color=icon_color, icon='info-sign' if est_nome == bairro else 'map-marker'), popup=folium.Popup(f"<b>{est_nome}</b><br>{t['popup_risco']}: {RISCO_UI[idioma_sel].get(r_est, r_est)}", max_width=250), tooltip=est_nome).add_to(m)
-           
+            
             mapa_interativo = st_folium(m, height=450, width="100%", returned_objects=["last_object_clicked"])
             if mapa_interativo and mapa_interativo.get("last_object_clicked"):
                 est_clicada = min(COORDENADAS_ESTACOES.keys(), key=lambda k: (COORDENADAS_ESTACOES[k][0] - mapa_interativo["last_object_clicked"]["lat"])**2 + (COORDENADAS_ESTACOES[k][1] - mapa_interativo["last_object_clicked"]["lng"])**2)
@@ -340,7 +341,7 @@ with tab_hist:
     df_hist_geral = carregar_historico_consolidado()
     
     if df_hist_geral.empty:
-        st.warning("O arquivo `historico_risco-final.csv` não foi encontrado ou está vazio na raiz do projeto.")
+        st.warning("O arquivo `historico_risco-final.csv` não foi encontrado ou está vazio na raiz du projeto.")
     else:
         data_hoje_dt = pd.to_datetime(data_hoje_str).date()
         max_data_permitida = data_hoje_dt - timedelta(days=1)
@@ -353,7 +354,6 @@ with tab_hist:
             min_data_disp = pd.to_datetime(df_passado['data']).min().date()
             max_data_disp = pd.to_datetime(df_passado['data']).max().date()
             
-            # Pega dinamicamente o primeiro registro real do histórico como início e o último válido como fim
             default_inicio = min_data_disp
             limite_fim_hist = min(max_data_permitida, max_data_disp)
 
@@ -419,46 +419,47 @@ with tab_hist:
                             (df_passado['nomeEstacao'].isin(estacoes_escolhidas))
                         ].sort_values(by=['data', 'hora_ref'])
                     
-                    if df_filtrado.empty:
-                        st.info("Nenhum registro encontrado para a combinação de datas e estações selecionadas.")
-                    else:
-                        mapa_de_cores = {'Alto': '#D32F2F', 'Moderado Alto': '#FFA500', 'Moderado': '#FFC107', 'Baixo': '#4CAF50'}
-                        datas_presentes = sorted(df_filtrado['data'].unique())
-                        
-                        for estacao in estacoes_escolhidas:
-                            for dt in datas_presentes:
-                                df_sub = df_filtrado[(df_filtrado['nomeEstacao'] == estacao) & (df_filtrado['data'] == dt)]
-                                
-                                if not df_sub.empty:
-                                    st.markdown(f"<h4 style='margin-top: 1.5rem; color: var(--ink-900);'>📍 {estacao} — 📅 {dt}</h4>", unsafe_allow_html=True)
+                        if df_filtrado.empty:
+                            st.info("Nenhum registro encontrado para a combinação de datas e estações selecionadas.")
+                        else:
+                            mapa_de_cores = {'Alto': '#D32F2F', 'Moderado Alto': '#FFA500', 'Moderado': '#FFC107', 'Baixo': '#4CAF50'}
+                            datas_presentes = sorted(df_filtrado['data'].unique())
+                            
+                            for estacao in estacoes_escolhidas:
+                                for dt in datas_presentes:
+                                    df_sub = df_filtrado[(df_filtrado['nomeEstacao'] == estacao) & (df_filtrado['data'] == dt)]
                                     
-                                    fig_hist = go.Figure()
-                                    lim_x = max(110, df_sub['VP'].max() * 1.2)
-                                    x_grid, y_grid = np.arange(0, lim_x, 1), np.linspace(0, 5, 100)
-                                    z_grid = np.array([x * y for y in y_grid for x in x_grid]).reshape(len(y_grid), len(x_grid))
-                                    
-                                    fig_hist.add_trace(go.Heatmap(x=x_grid, y=y_grid, z=z_grid, colorscale=[[0, "#90EE90"], [0.3, "#FFD700"], [0.5, "#FFA500"], [1.0, "#D32F2F"]], showscale=False, zmin=0, zmax=100, hoverinfo="none"))
-                                    fig_hist.add_trace(go.Scatter(x=df_sub['VP'], y=df_sub['AM_real'], mode='lines', line=dict(color='black', width=1.5, dash='dash'), hoverinfo='none', showlegend=False))
-                                    fig_hist.add_trace(go.Scatter(
-                                        x=df_sub['VP'], y=df_sub['AM_real'],
-                                        mode='markers',
-                                        marker=dict(color=[mapa_de_cores.get(r, 'black') for r in df_sub['Classificacao_Risco']], size=10, line=dict(width=1, color='black')),
-                                        hoverinfo='text',
-                                        hovertext=[f"<b>Hora:</b> {r['hora_ref']}<br><b>Risco:</b> {r['Classificacao_Risco']}<br><b>VP:</b> {r['VP']:.2f}<br><b>AM:</b> {r['AM_real']:.2f}" for _, r in df_sub.iterrows()],
-                                        showlegend=False
-                                    ))
-                                    
-                                    fig_hist.update_layout(
-                                        xaxis_title=t['eixo_x'],
-                                        yaxis_title=t['eixo_y'],
-                                        margin=dict(l=40, r=40, t=40, b=40),
-                                        paper_bgcolor='rgba(0,0,0,0)',
-                                        plot_bgcolor='rgba(0,0,0,0)',
-                                        font=dict(color='#e2e8f0' if is_dark else '#344054'),
-                                        xaxis=dict(gridcolor='#3b556d' if is_dark else 'rgba(148,163,184,0.18)', zeroline=False),
-                                        yaxis=dict(gridcolor='#3b556d' if is_dark else 'rgba(148,163,184,0.18)', zeroline=False)
-                                    )
-                                    st.plotly_chart(fig_hist, use_container_width=True)
+                                    if not df_sub.empty:
+                                        st.markdown(f"<h4 style='margin-top: 1.5rem; color: var(--ink-900);'>📍 {estacao} — 📅 {dt}</h4>", unsafe_allow_html=True)
+                                        
+                                        fig_hist = go.Figure()
+                                        lim_x = max(110, df_sub['VP'].max() * 1.2)
+                                        x_grid, y_grid = np.arange(0, lim_x, 1), np.linspace(0, 5, 100)
+                                        z_grid = np.array([x * y for y in y_grid for x in x_grid]).reshape(len(y_grid), len(x_grid))
+                                        
+                                        fig_hist.add_trace(go.Heatmap(x=x_grid, y=y_grid, z=z_grid, colorscale=[[0, "#90EE90"], [0.3, "#FFD700"], [0.5, "#FFA500"], [1.0, "#D32F2F"]], showscale=False, zmin=0, zmax=100, hoverinfo="none"))
+                                        fig_hist.add_trace(go.Scatter(x=df_sub['VP'], y=df_sub['AM_real'], mode='lines', line=dict(color='black', width=1.5, dash='dash'), hoverinfo='none', showlegend=False))
+                                        fig_hist.add_trace(go.Scatter(
+                                            x=df_sub['VP'], y=df_sub['AM_real'],
+                                            mode='markers',
+                                            marker=dict(color=[mapa_de_cores.get(r, 'black') for r in df_sub['Classificacao_Risco']], size=10, line=dict(width=1, color='black')),
+                                            hoverinfo='text',
+                                            hovertext=[f"<b>Hora:</b> {r['hora_ref']}<br><b>Risco:</b> {r['Classificacao_Risco']}<br><b>VP:</b> {r['VP']:.2f}<br><b>AM:</b> {r['AM_real']:.2f}" for _, r in df_sub.iterrows()],
+                                            showlegend=False
+                                        ))
+                                        
+                                        fig_hist.update_layout(
+                                            xaxis_title=t['eixo_x'],
+                                            yaxis_title=t['eixo_y'],
+                                            margin=dict(l=40, r=40, t=40, b=40),
+                                            paper_bgcolor='rgba(0,0,0,0)',
+                                            plot_bgcolor='rgba(0,0,0,0)',
+                                            font=dict(color='#e2e8f0' if is_dark else '#344054'),
+                                            xaxis=dict(gridcolor='#3b556d' if is_dark else 'rgba(148,163,184,0.18)', zeroline=False),
+                                            yaxis=dict(gridcolor='#3b556d' if is_dark else 'rgba(148,163,184,0.18)', zeroline=False)
+                                        )
+                                        st.plotly_chart(fig_hist, use_container_width=True)
+
 # ==========================================
 # ABA 3: METODOLOGIA
 # ==========================================
