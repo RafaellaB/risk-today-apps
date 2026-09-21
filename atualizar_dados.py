@@ -1,281 +1,320 @@
 import os
-import pandas as pd
-import numpy as np
+import sys
 from datetime import datetime, timedelta
-import pytz
-import requests
 from pathlib import Path
 
-# ==============================
-# CONFIGURAÇÕES GERAIS
-# ==============================
+import pandas as pd
+import requests
+from pytz import timezone
 
-BASE_DIR = Path(__file__).parent
-ARQUIVO_CHUVA = BASE_DIR / "chuva_tempo_real.csv"
-ARQUIVO_MARE = BASE_DIR / "mare Astronomica.csv"
 
-# Estações desejadas e nomes
-ESTACOES_DESEJADAS = ['Campina do Barreto', 'Torreão', 'RECIFE - APAC', 'Imbiribeira', 'Dois Irmãos']
+# ==========================================
+# CONFIGURAÇÕES
+# ==========================================
+
+BASE_DIR = Path(__file__).resolve().parent
+
+FUSO_RECIFE = timezone("America/Recife")
+
+ESTACOES_CEMADEN = [
+    "261160614A",
+    "261160609A",
+    "261160623A",
+    "261160618A",
+    "261160603A",
+]
+
 MAPA_ESTACOES = {
-    '261160614A': 'Campina do Barreto',
-    '261160609A': 'Torreão',
-    '261160623A': 'RECIFE - APAC',
-    '261160618A': 'Imbiribeira',
-    '261160603A': 'Dois Irmãos'
+    "261160614A": "Campina do Barreto",
+    "261160609A": "Torreão",
+    "261160623A": "RECIFE - APAC",
+    "261160618A": "Imbiribeira",
+    "261160603A": "Dois Irmãos",
 }
 
-# ==============================
-# FUNÇÕES AUXILIARES
-# ==============================
 
-def obter_token_cemaden():
+# ==========================================
+# AUTENTICAÇÃO E CONSULTA À API
+# ==========================================
+
+def obter_token(email, senha):
     """
-    Obtém token de autenticação da API do CEMADEN.
+    Obtém o token de autenticação da API CEMADEN.
+
+    As credenciais devem estar nos GitHub Secrets:
+    - CEMADEN_EMAIL
+    - CEMADEN_PASS
     """
-    url = "https://pluviometriace.cemaden.recife.pe.gov.br/pluviometriace/api/token"
-    payload = {
-        "username": "recife",
-        "password": "recife123",
-        "grant_type": "password",
-        "client_id": "pluviometria-client"
-    }
-    headers = {"Content-Type": "application/json"}
+    if not email or not senha:
+        print(
+            "ERRO: CEMADEN_EMAIL ou CEMADEN_PASS não foi encontrado.",
+            file=sys.stderr,
+        )
+        return None
+
+    url_token = "https://sgaa.cemaden.gov.br/SGAA/rest/controle-token/tokens"
+
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("access_token")
-    except Exception as e:
-        print(f"Erro ao obter token: {e}")
+        resposta = requests.post(
+            url_token,
+            json={
+                "email": email,
+                "password": senha,
+            },
+            timeout=30,
+        )
+        resposta.raise_for_status()
+
+        token = resposta.json().get("token")
+
+        if not token:
+            print(
+                "ERRO: A resposta de autenticação não contém o campo token.",
+                file=sys.stderr,
+            )
+            return None
+
+        print("✅ Token CEMADEN obtido com sucesso.")
+        return token
+
+    except requests.RequestException as erro:
+        print(f"ERRO ao obter token CEMADEN: {erro}", file=sys.stderr)
         return None
 
 
-def carregar_acumulados_api_cemaden(token):
+def buscar_dados_cemaden(token, estacoes):
     """
-    Busca acumulados de chuva (12h e 24h) de todas as estações via API do CEMADEN.
-    Retorna DataFrame com colunas: codestacao, nome, acc12hr, acc24hr, datahora_api
+    Busca dados recentes de chuva por estação no CEMADEN.
+
+    O campo datahora fornecido pela API é tratado como UTC e convertido
+    para America/Recife. O horário não é arredondado nem inventado.
+
+    Exemplo:
+    - API: 2026-09-21T23:40:00Z
+    - CSV: 2026-09-21 20:40:00
     """
     if not token:
         return pd.DataFrame()
 
-    url_base = "https://pluviometriace.cemaden.recife.pe.gov.br/pluviometriace/api/Estacoes/GetUltimaMedicao"
-    headers = {"Authorization": f"Bearer {token}"}
+    url_base = "https://sws.cemaden.gov.br/PED/rest/pcds/pcds-dados-recentes"
+    cabecalhos = {"token": token}
+    respostas = []
 
-    registros = []
-    agora = datetime.now()
+    for codestacao in estacoes:
+        parametros = {
+            "codestacao": codestacao,
+            "uf": "PE",
+            "rede": "11",
+            "sensor": "10",
+            "formato": "JSON",
+        }
 
-    for cod_estacao in MAPA_ESTACOES.keys():
         try:
-            params = {"codigoEstacao": cod_estacao}
-            resp = requests.get(url_base, headers=headers, params=params, timeout=10)
-            resp.raise_for_status()
-            dados = resp.json()
+            resposta = requests.get(
+                url_base,
+                headers=cabecalhos,
+                params=parametros,
+                timeout=30,
+            )
+            resposta.raise_for_status()
 
-            # Extrair campos relevantes
-            acc12 = dados.get("acumulado12Horas") or 0.0
-            acc24 = dados.get("acumulado24Horas") or 0.0
-            datahora_str = dados.get("dataHora")  # ex: "2025-08-12T14:45:00Z"
+            dados = resposta.json()
 
-            if datahora_str:
-                # Remover 'Z' e converter para datetime
-                datahora_str = datahora_str.replace("Z", "")
-                datahora_dt = datetime.fromisoformat(datahora_str)
-            else:
-                datahora_dt = agora
+            if isinstance(dados, dict):
+                if "Nenhum resultado foi encontrado" in str(
+                    dados.get("Info", "")
+                ):
+                    print(f"Aviso: sem dados para a estação {codestacao}.")
+                    continue
 
-            registros.append({
-                "codestacao": cod_estacao,
-                "nome": MAPA_ESTACOES[cod_estacao],
-                "acc12hr": float(acc12),
-                "acc24hr": float(acc24),
-                "datahora_api": datahora_dt
-            })
-        except Exception as e:
-            print(f"Aviso: Falha na estação {cod_estacao}.")
-            continue
+                dados = [dados]
 
-    if not registros:
+            if dados:
+                respostas.append(pd.DataFrame(dados))
+                print(
+                    f"Estação {codestacao}: "
+                    f"{len(dados)} registro(s) recebido(s)."
+                )
+
+        except requests.RequestException as erro:
+            print(
+                f"Aviso: falha ao consultar a estação {codestacao}: {erro}",
+                file=sys.stderr,
+            )
+
+    if not respostas:
         return pd.DataFrame()
 
-    df = pd.DataFrame(registros)
+    df = pd.concat(respostas, ignore_index=True, sort=False)
+
+    if "datahora" not in df.columns:
+        print(
+            "ERRO: a API não retornou a coluna datahora.",
+            file=sys.stderr,
+        )
+        return pd.DataFrame()
+
+    # utc=True evita qualquer conflito entre datetime tz-naive e tz-aware.
+    df["datahora"] = pd.to_datetime(
+        df["datahora"],
+        errors="coerce",
+        utc=True,
+    ).dt.tz_convert(FUSO_RECIFE)
+
+    df = df.dropna(subset=["datahora"]).copy()
+
+    if "codestacao" not in df.columns:
+        print(
+            "ERRO: a API não retornou a coluna codestacao.",
+            file=sys.stderr,
+        )
+        return pd.DataFrame()
+
+    df["codestacao"] = df["codestacao"].astype(str).str.strip()
+
+    # O nome usado pelo front atual é "nome".
+    df["nome"] = df["codestacao"].map(MAPA_ESTACOES)
+
+    # Grava como texto sem offset para preservar compatibilidade com o front.
+    df["datahora"] = df["datahora"].dt.strftime("%Y-%m-%d %H:%M:%S")
+
     return df
 
 
-def carregar_dados_mare_cache(arquivo_mare):
+# ==========================================
+# ATUALIZAÇÃO DOS CSVs INCREMENTAIS
+# ==========================================
+
+def atualizar_csv_diario(df_novos, caminho_csv):
     """
-    Carrega dados da maré astronômica do arquivo CSV.
+    Une registros recebidos da API com o arquivo diário existente.
+
+    A chave de deduplicação é:
+    - codestacao
+    - datahora
+
+    Todas as colunas fornecidas pela API são preservadas.
     """
-    if not arquivo_mare.exists():
-        print("Arquivo de maré não encontrado.")
-        return pd.DataFrame()
+    caminho_csv = Path(caminho_csv)
 
-    df = pd.read_csv(arquivo_mare, sep=";", decimal=",")
-    df["data"] = pd.to_datetime(df["data"]).dt.strftime("%Y-%m-%d")
-    df["hora_ref"] = df["hora"].astype(str).str.zfill(2) + ":00:00"
-    return df
+    if caminho_csv.exists() and caminho_csv.stat().st_size > 0:
+        try:
+            df_existente = pd.read_csv(caminho_csv, encoding="utf-8")
 
+            df_combinado = pd.concat(
+                [df_existente, df_novos],
+                ignore_index=True,
+                sort=False,
+            )
+        except (pd.errors.EmptyDataError, UnicodeDecodeError) as erro:
+            print(
+                f"Aviso: não foi possível ler {caminho_csv.name}: {erro}. "
+                "O arquivo será recriado."
+            )
+            df_combinado = df_novos.copy()
+    else:
+        df_combinado = df_novos.copy()
 
-def carregar_dados_chuva_tempo_real():
-    """
-    Carrega dados brutos de chuva do CSV (se existir).
-    """
-    if not ARQUIVO_CHUVA.exists():
-        return pd.DataFrame(columns=["datahora", "codestacao", "nome", "valor"])
+    if "datahora" not in df_combinado.columns:
+        print(
+            f"ERRO: {caminho_csv.name} não possui coluna datahora.",
+            file=sys.stderr,
+        )
+        return
 
-    df = pd.read_csv(ARQUIVO_CHUVA)
-    if "datahora" in df.columns:
-        df["datahora"] = pd.to_datetime(df["datahora"])
-    return df
-
-
-def processar_dados_chuva_simplificado(df_chuva_raw, datas_processar, estacoes_desejadas):
-    """
-    Calcula VP acumulado (0–24h) por estação e por data/hora.
-    """
-    if df_chuva_raw.empty:
-        return pd.DataFrame()
-
-    registros = []
-    mapa_inverso = {v: k for k, v in MAPA_ESTACOES.items()}
-
-    for data_str in datas_processar:
-        data_dt = pd.to_datetime(data_str)
-        fim = data_dt + pd.Timedelta(days=1)
-
-        for estacao in estacoes_desejadas:
-            cod_estacao = mapa_inverso.get(estacao)
-            if not cod_estacao:
-                continue
-
-            df_est = df_chuva_raw[
-                (df_chuva_raw["codestacao"] == cod_estacao) &
-                (df_chuva_raw["datahora"].dt.strftime("%Y-%m-%d") == data_str)
-            ].copy()
-
-            if df_est.empty:
-                continue
-
-            vp_acumulado = 0.0
-            for _, row in df_est.iterrows():
-                t_row = row["datahora"]
-                janela_ini = t_row - pd.Timedelta(hours=24)
-                janela = df_est[df_est["datahora"].between(janela_ini, t_row)]
-                vp = janela["valor"].sum()
-                vp_acumulado = max(vp_acumulado, vp)
-
-            for _, row in df_est.iterrows():
-                registros.append({
-                    "data": data_str,
-                    "hora_ref": row["datahora"].strftime("%H:00:00"),
-                    "codestacao": cod_estacao,
-                    "nome": estacao,
-                    "VP": round(vp_acumulado, 2)
-                })
-
-    if not registros:
-        return pd.DataFrame()
-
-    df_vp = pd.DataFrame(registros)
-    return df_vp
-
-
-def calcular_risco(df_vp, df_am):
-    """
-    Calcula AM_real, Nivel_Risco_Valor e Classificacao_Risco.
-    """
-    if df_vp.empty or df_am.empty:
-        return pd.DataFrame()
-
-    df = pd.merge(df_vp, df_am, on=["data", "hora_ref"], how="left")
-    if df.empty:
-        return df
-
-    df["AM_real"] = df["AM"]
-    df["AM_calc"] = df["AM_real"].copy()
-    df.loc[df["AM_calc"].notna() & (df["AM_calc"] < 1), "AM_calc"] = 1
-
-    df["Nivel_Risco_Valor"] = (df["VP"] * df["AM_calc"]).fillna(0)
-
-    bins = [-np.inf, 30, 50, 100, np.inf]
-    df["Classificacao_Risco"] = pd.cut(
-        df["Nivel_Risco_Valor"],
-        bins=bins,
-        labels=["Baixo", "Moderado", "Moderado Alto", "Alto"]
+    df_combinado["datahora"] = pd.to_datetime(
+        df_combinado["datahora"],
+        errors="coerce",
     )
 
-    return df
+    df_combinado = df_combinado.dropna(
+        subset=["datahora", "codestacao"]
+    ).copy()
+
+    df_combinado["codestacao"] = (
+        df_combinado["codestacao"].astype(str).str.strip()
+    )
+
+    df_combinado = df_combinado.drop_duplicates(
+        subset=["codestacao", "datahora"],
+        keep="last",
+    )
+
+    df_combinado = df_combinado.sort_values(
+        by=["datahora", "codestacao"],
+    )
+
+    df_combinado["datahora"] = df_combinado["datahora"].dt.strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    df_combinado.to_csv(
+        caminho_csv,
+        index=False,
+        encoding="utf-8",
+    )
+
+    print(
+        f"✅ {caminho_csv.name} atualizado com "
+        f"{len(df_combinado)} registro(s)."
+    )
 
 
-def atualizar_chuva_tempo_real():
-    """
-    Função principal: atualiza o arquivo chuva_tempo_real.csv com dados recentes.
-    """
-    print("Buscando dados recentes do CEMADEN estação por estação...")
+# ==========================================
+# EXECUÇÃO PRINCIPAL
+# ==========================================
 
-    # Carregar dados existentes
-    if ARQUIVO_CHUVA.exists():
-        df_final_csv = pd.read_csv(ARQUIVO_CHUVA)
-        df_final_csv["datahora"] = pd.to_datetime(df_final_csv["datahora"])
-        df_final_csv["datahora_dt"] = df_final_csv["datahora"].dt.tz_localize(None)
-    else:
-        df_final_csv = pd.DataFrame(columns=["datahora", "codestacao", "nome", "valor", "VP", "AM", "Nivel_Risco_Valor", "Classificacao_Risco"])
-        df_final_csv["datahora"] = pd.to_datetime(df_final_csv["datahora"])
-        df_final_csv["datahora_dt"] = pd.to_datetime(df_final_csv["datahora"]).dt.tz_localize(None)
+def main():
+    print("🌧️ Iniciando coleta incremental de chuva.")
 
-    # Definir janela de atualização (últimas 48h)
-    fuso = pytz.timezone("America/Recife")
-    agora_utc = pd.Timestamp.now("UTC")
-    agora = agora_utc.astimezone(fuso)
-    limite = agora - timedelta(hours=48)
-    limite_naive = limite.tz_localize(None)  # ← garantir tz-naive
+    email = os.getenv("CEMADEN_EMAIL")
+    senha = os.getenv("CEMADEN_PASS")
 
-    # Filtrar apenas dados recentes do CSV existente
-    if not df_final_csv.empty:
-        df_final_csv = df_final_csv[df_final_csv["datahora_dt"] >= limite_naive]
+    token = obter_token(email, senha)
 
-    # Buscar novos dados da API
-    token = obter_token_cemaden()
-    df_acumulados = carregar_acumulados_api_cemaden(token)
+    if not token:
+        sys.exit(1)
 
-    if df_acumulados.empty:
-        print("Nenhum dado novo obtido da API.")
-    else:
-        # Converter datahora_api para tz-naive
-        df_acumulados["datahora_api"] = pd.to_datetime(df_acumulados["datahora_api"]).dt.tz_localize(None)
+    df_chuva_recente = buscar_dados_cemaden(
+        token,
+        ESTACOES_CEMADEN,
+    )
 
-        # Filtrar apenas dados dentro da janela
-        df_novos = df_acumulados[df_acumulados["datahora_api"] >= limite_naive]
+    if df_chuva_recente.empty:
+        print("Nenhum dado recente foi retornado pela API.")
+        sys.exit(0)
 
-        if not df_novos.empty:
-            # Renomear para bater com o CSV
-            df_novos = df_novos.rename(columns={"datahora_api": "datahora", "acc24hr": "valor"})
-            df_novos = df_novos[["datahora", "codestacao", "nome", "valor"]]
+    agora = datetime.now(FUSO_RECIFE)
 
-            # Concatenar com dados existentes
-            df_final_csv = pd.concat([df_final_csv, df_novos], ignore_index=True)
-            df_final_csv = df_final_csv.drop_duplicates(subset=["datahora", "codestacao"], keep="last")
+    data_hoje = agora.strftime("%Y-%m-%d")
+    data_ontem = (agora - timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Recalcular VP, AM e risco
-    datas_processar = sorted(df_final_csv["datahora"].dt.strftime("%Y-%m-%d").dropna().unique())
-    df_vp = processar_dados_chuva_simplificado(df_final_csv, datas_processar, ESTACOES_DESEJADAS)
-    df_am = carregar_dados_mare_cache(ARQUIVO_MARE)
-    df_final = calcular_risco(df_vp, df_am)
+    df_chuva_recente["data_ref"] = pd.to_datetime(
+        df_chuva_recente["datahora"],
+        errors="coerce",
+    ).dt.strftime("%Y-%m-%d")
 
-    if not df_final.empty:
-        # Montar DataFrame final para salvar
-        df_salvar = df_final[["data", "hora_ref", "codestacao", "nome", "VP", "AM", "Nivel_Risco_Valor", "Classificacao_Risco"]].copy()
-        df_salvar["datahora"] = pd.to_datetime(df_salvar["data"] + " " + df_salvar["hora_ref"])
-        df_salvar = df_salvar[["datahora", "codestacao", "nome", "VP", "AM", "Nivel_Risco_Valor", "Classificacao_Risco"]]
+    # Atualiza D e D-1.
+    # D alimentará a Aba 1.
+    # D-1 será consolidado pelo workflow diário e alimentará a Aba 2.
+    for data_ref in [data_hoje, data_ontem]:
+        df_dia = df_chuva_recente[
+            df_chuva_recente["data_ref"] == data_ref
+        ].copy()
 
-        # Concatenar com dados brutos (chuva)
-        df_bruto = df_final_csv[["datahora", "codestacao", "nome", "valor"]].copy()
-        df_final_csv = pd.merge(df_bruto, df_salvar, on=["datahora", "codestacao", "nome"], how="left")
+        if df_dia.empty:
+            print(f"Nenhum registro retornado para {data_ref}.")
+            continue
 
-    # Salvar
-    df_final_csv = df_final_csv.drop(columns=["datahora_dt"], errors="ignore")
-    df_final_csv.to_csv(ARQUIVO_CHUVA, index=False, encoding="utf-8")
-    print(f"✅ Arquivo atualizado: {len(df_final_csv)} registros.")
+        df_dia = df_dia.drop(columns=["data_ref"], errors="ignore")
+
+        arquivo_diario = BASE_DIR / f"chuva_recife_{data_ref}.csv"
+
+        print(f"Atualizando dados de {data_ref}.")
+        atualizar_csv_diario(df_dia, arquivo_diario)
+
+    print("🚀 Coleta incremental concluída.")
 
 
 if __name__ == "__main__":
-    atualizar_chuva_tempo_real()
+    main()

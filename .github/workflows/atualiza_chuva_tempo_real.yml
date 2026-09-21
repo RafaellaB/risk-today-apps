@@ -1,26 +1,20 @@
-name: 🌧️ Chuva Tempo Real (a cada 5 min)
+name: 🌧️ Chuva Incremental (a cada 5 min)
 
 on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
-permissions:
-  contents: write
-
-concurrency:
-  group: chuva-tempo-real
-  cancel-in-progress: false
-
 jobs:
-  coleta_incremental:
+  pipeline_chuva_incremental:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -30,31 +24,36 @@ jobs:
       - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pandas numpy requests pytz
+          python -m pip install requests pandas pytz
 
-      - name: Executar atualização da chuva
+      - name: Executar coleta incremental
         env:
           CEMADEN_EMAIL: ${{ secrets.CEMADEN_EMAIL }}
           CEMADEN_PASS: ${{ secrets.CEMADEN_PASS }}
-        run: |
-          python atualizar_dados.py
+        run: python atualizar_dados.py
 
-      - name: Conferir as últimas linhas do CSV
+      - name: Verificar arquivos incrementais
         run: |
-          echo "Quantidade de linhas:"
-          wc -l chuva_tempo_real.csv || true
+          echo "=== Arquivos de chuva disponíveis ==="
+          ls -lah chuva_recife_*.csv || true
+
           echo ""
-          echo "Últimas 20 linhas:"
-          tail -n 20 chuva_tempo_real.csv || true
+          echo "=== Últimas 20 linhas do arquivo de hoje ==="
+          ARQUIVO_HOJE="chuva_recife_$(TZ=America/Recife date +%F).csv"
+          echo "Arquivo: ${ARQUIVO_HOJE}"
+          tail -n 20 "${ARQUIVO_HOJE}" || true
 
-      - name: Commit e push do CSV atualizado
+      - name: Commit e push dos CSVs incrementais
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add chuva_tempo_real.csv
+          git add chuva_recife_*.csv
 
-          git diff --cached --quiet && echo "Nenhuma alteração para enviar." && exit 0
+          if git diff --cached --quiet; then
+            echo "Nenhuma atualização de chuva para enviar."
+            exit 0
+          fi
 
-          git commit -m "Atualiza chuva em tempo real [skip ci]"
+          git commit -m "Atualiza chuva incremental [skip ci]"
           git push
