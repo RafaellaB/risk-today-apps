@@ -224,7 +224,7 @@ def atualizar_chuva_tempo_real():
 
     # Definir janela de atualização (últimas 48h)
     fuso = pytz.timezone("America/Recife")
-    agora_utc = pd.Timestamp.utcnow().tz_localize("UTC")
+    agora_utc = pd.Timestamp.now("UTC")
     agora = agora_utc.astimezone(fuso)
     limite = agora - timedelta(hours=48)
     limite_naive = limite.tz_localize(None)  # ← garantir tz-naive
