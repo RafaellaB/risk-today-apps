@@ -3,7 +3,7 @@ import sys
 import time
 import pandas as pd
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from pytz import timezone
 from pathlib import Path
 
@@ -45,8 +45,9 @@ def atualizar_chuva_tempo_real():
         print("Erro: Não foi possível obter o token de acesso do CEMADEN.")
         return
 
-
     estacoes_de_recife = ['261160614A', '261160609A', '261160623A', '261160618A', '261160603A']
+    
+    # ← MAPEAMENTO CORRETO: código → nome verdadeiro
     mapa_estacoes = {
         '261160614A': 'Campina do Barreto',
         '261160609A': 'Torreão',
@@ -55,12 +56,9 @@ def atualizar_chuva_tempo_real():
         '261160603A': 'Dois Irmãos'
     }
 
-
-    # Endpoint de DADOS RECENTES (brutos, múltiplas medições por estação)
     url_base = 'https://sws.cemaden.gov.br/PED/rest/pcds/pcds-dados-recentes'
     headers = {'token': token}
     lista_dfs = []
-
 
     print("Buscando dados recentes do CEMADEN estação por estação...")
     for codestacao in estacoes_de_recife:
@@ -90,59 +88,44 @@ def atualizar_chuva_tempo_real():
         if not sucesso_estacao:
             print(f"Aviso: Falha na estação {codestacao}.")
 
-
     if not lista_dfs:
         print("Nenhum dado retornado pela API nas estações.")
         return
-
 
     df_final = pd.concat(lista_dfs, ignore_index=True)
     if df_final.empty or 'datahora' not in df_final.columns:
         print("DataFrame vazio ou sem coluna de data/hora.")
         return
 
-
     # Tratamento de fuso horário para Recife
     df_final['datahora'] = pd.to_datetime(df_final['datahora'], errors='coerce', utc=True)
     df_final = df_final.dropna(subset=['datahora'])
     df_final['datahora'] = df_final['datahora'].dt.tz_convert('America/Recife').dt.strftime('%Y-%m-%d %H:%M:%S')
 
-
+    # ← CORRIGIR: Sobrescrever APENAS a coluna 'nome' da API com o valor correto
     if 'codestacao' in df_final.columns:
         df_final['codestacao'] = df_final['codestacao'].astype(str).str.strip()
-        df_final['nomeEstacao'] = df_final['codestacao'].map(mapa_estacoes)
+        df_final['nome'] = df_final['codestacao'].map(mapa_estacoes)
 
-
-    if 'valorMedida' not in df_final.columns:
-        for col_alt in ['valor', 'medida', 'valormedida']:
-            if col_alt in df_final.columns:
-                df_final['valorMedida'] = df_final[col_alt]
-                break
-
-
-    if 'valorMedida' not in df_final.columns:
+    # ← Usar 'valor' diretamente
+    if 'valor' not in df_final.columns:
         print("Resposta sem coluna de medição válida.")
         return
 
-
-    df_final['valorMedida'] = pd.to_numeric(df_final['valorMedida'], errors='coerce')
-    df_final = df_final[df_final['codestacao'].isin(estacoes_de_recife)].dropna(subset=['valorMedida'])
-
+    df_final['valor'] = pd.to_numeric(df_final['valor'], errors='coerce')
+    df_final = df_final[df_final['codestacao'].isin(estacoes_de_recife)].dropna(subset=['valor'])
 
     tz_recife = timezone('America/Recife')
     agora = datetime.now(tz_recife)
     hoje_str = agora.strftime('%Y-%m-%d')
 
-
     df_final['data_temp'] = pd.to_datetime(df_final['datahora']).dt.strftime('%Y-%m-%d')
     df_hoje = df_final[df_final['data_temp'] == hoje_str].copy()
     df_hoje.drop(columns=['data_temp'], inplace=True)
 
-
     if df_hoje.empty:
         print("Nenhum dado encontrado para o dia de hoje.")
         return
-
 
     # --- GERENCIAMENTO DO ARQUIVO ÚNICO DO DIA ATUAL ---
     if ARQUIVO_TEMPO_REAL.exists():
@@ -158,12 +141,35 @@ def atualizar_chuva_tempo_real():
     else:
         df_combinado = df_hoje
 
-
     df_final_csv = df_combinado.drop_duplicates(subset=['codestacao', 'datahora'], keep='last')
+
+    # ← Garantir colunas de risco (VP, AM, Nivel_Risco_Valor, Classificacao_Risco)
+    for col in ['VP', 'AM', 'Nivel_Risco_Valor', 'Classificacao_Risco']:
+        if col not in df_final_csv.columns:
+            if col == 'AM':
+                df_final_csv[col] = 0.0
+            elif col == 'VP':
+                df_final_csv[col] = 0.0
+            elif col == 'Nivel_Risco_Valor':
+                df_final_csv[col] = 0.0
+            else:
+                df_final_csv[col] = 'Baixo'
+
+    # ← Manter apenas últimas 3 horas (para cálculo do risco das 00h)
+    limite = agora - timedelta(hours=3)
+    df_final_csv['datahora_dt'] = pd.to_datetime(df_final_csv['datahora'])
+    df_final_csv = df_final_csv[df_final_csv['datahora_dt'] >= limite]
+
+    # ← Ordem final das colunas
+    colunas_finais = [
+        'datahora', 'codestacao', 'nome', 'valor',
+        'VP', 'AM', 'Nivel_Risco_Valor', 'Classificacao_Risco'
+    ]
+    df_final_csv = df_final_csv[[c for c in colunas_finais if c in df_final_csv.columns]]
+
     df_final_csv.to_csv(ARQUIVO_TEMPO_REAL, index=False, encoding='utf-8')
-    print(f"✅ Arquivo `chuva_tempo_real.csv` atualizado com o endpoint correto! Total: {len(df_final_csv)} registros.")
+    print(f"✅ Arquivo `chuva_tempo_real.csv` atualizado! Total: {len(df_final_csv)} registros.")
 
 
 if __name__ == "__main__":
     atualizar_chuva_tempo_real()
-    

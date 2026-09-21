@@ -77,7 +77,12 @@ def carregar_dados_recentes_api_cemaden(token, codestacao='261160614A'):
     
     url = 'https://sws.cemaden.gov.br/PED/rest/pcds/pcds-dados-recentes'
     headers = {'token': token}
-    params = {'codestacao': codestacao, 'formato': 'CSV'}
+    params = {
+        'codestacao': codestacao,
+        'rede': '11',
+        'uf': 'PE',
+        'formato': 'CSV'
+    }
     
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
@@ -93,7 +98,7 @@ def carregar_dados_recentes_api_cemaden(token, codestacao='261160614A'):
 def carregar_todas_estacoes_recentes(token):
     """
     Carrega dados RECENTES de TODAS as estações desejadas.
-    Retorna DataFrame concatenado com coluna 'nomeEstacao' preenchida.
+    Retorna DataFrame concatenado.
     Usado pela aba 1 (tempo real)
     """
     if not token: return pd.DataFrame()
@@ -103,7 +108,7 @@ def carregar_todas_estacoes_recentes(token):
     for nome_estacao, cod_estacao in ESTACOES_CODIGOS_CEMADEN.items():
         df = carregar_dados_recentes_api_cemaden(token, codestacao=cod_estacao)
         if not df.empty:
-            df['nomeEstacao'] = nome_estacao
+            # ← NÃO criar 'nomeEstacao' - a API já retorna 'nome'
             dfs_estacoes.append(df)
     
     if dfs_estacoes:
@@ -259,10 +264,14 @@ def carregar_dados_chuva_tempo_real():
         return pd.DataFrame()
     try:
         df = pd.read_csv(ARQUIVO_TEMPO_REAL, encoding='utf-8')
-        if 'valor' in df.columns and 'valorMedida' not in df.columns:
-            df.rename(columns={'valor': 'valorMedida'}, inplace=True)
-        if 'nome' in df.columns and 'nomeEstacao' not in df.columns:
-            df.rename(columns={'nome': 'nomeEstacao'}, inplace=True)
+        
+        # ← NÃO renomear colunas - usar 'valor' e 'nome' diretamente
+        # if 'valor' in df.columns and 'valorMedida' not in df.columns:
+        #     df.rename(columns={'valor': 'valorMedida'}, inplace=True)
+        # if 'nome' in df.columns and 'nomeEstacao' not in df.columns:
+        #     df.rename(columns={'nome': 'nomeEstacao'}, inplace=True)
+        
+        # ← Mapear 'nome' via 'codestacao' se necessário
         if 'codestacao' in df.columns:
             mapa_estacoes = {
                 '261160614A': 'Campina do Barreto',
@@ -271,14 +280,13 @@ def carregar_dados_chuva_tempo_real():
                 '261160618A': 'Imbiribeira',
                 '261160603A': 'Dois Irmãos',
             }
-            nomes_mapeados = df['codestacao'].astype(str).str.strip().map(mapa_estacoes)
-            if 'nomeEstacao' not in df.columns:
-                df['nomeEstacao'] = nomes_mapeados
-            else:
-                df['nomeEstacao'] = df['nomeEstacao'].fillna(nomes_mapeados)
-        if 'valorMedida' in df.columns:
-            df['valorMedida'] = pd.to_numeric(df['valorMedida'], errors='coerce')
-            df = df.dropna(subset=['valorMedida'])
+            df['nome'] = df['codestacao'].astype(str).str.strip().map(mapa_estacoes)
+        
+        # ← Usar 'valor' diretamente
+        if 'valor' in df.columns:
+            df['valor'] = pd.to_numeric(df['valor'], errors='coerce')
+            df = df.dropna(subset=['valor'])
+        
         df['datahora'] = pd.to_datetime(df['datahora'], format='mixed', errors='coerce')
         return df.dropna(subset=['datahora'])
     except Exception:
@@ -287,18 +295,27 @@ def carregar_dados_chuva_tempo_real():
 
 def processar_dados_chuva_simplificado(df_chuva, datas_desejadas, estacoes_desejadas):
     if df_chuva.empty: return pd.DataFrame()
-    df = df_chuva[df_chuva['nomeEstacao'].isin(estacoes_desejadas)].copy()
+    
+    # ← Usar 'nome' ao invés de 'nomeEstacao'
+    df = df_chuva[df_chuva['nome'].isin(estacoes_desejadas)].copy()
     df['data'] = df['datahora'].dt.date.astype(str)
     df = df[df['data'].isin(datas_desejadas)]
     if df.empty: return pd.DataFrame()
     df = df.set_index('datahora').sort_index()
     resultados = []
-    for estacao, grupo in df.groupby('nomeEstacao'):
-        temp_df = pd.DataFrame({'chuva_10min': grupo['valorMedida'].rolling('10min').sum(), 'chuva_2h': grupo['valorMedida'].rolling('2h').sum()})
+    
+    # ← Usar 'nome' ao invés de 'nomeEstacao'
+    for estacao, grupo in df.groupby('nome'):
+        # ← Usar 'valor' ao invés de 'valorMedida'
+        temp_df = pd.DataFrame({
+            'chuva_10min': grupo['valor'].rolling('10min').sum(), 
+            'chuva_2h': grupo['valor'].rolling('2h').sum()
+        })
         agregado = temp_df.resample('h').last()
         agregado['VP'] = (agregado['chuva_10min'] * 6) + agregado['chuva_2h']
-        agregado['nomeEstacao'] = estacao
+        agregado['nome'] = estacao
         resultados.append(agregado)
+    
     df_vp = pd.concat(resultados).reset_index()
     df_vp['data'] = df_vp['datahora'].dt.strftime('%Y-%m-%d')
     df_vp['hora_ref'] = df_vp['datahora'].dt.strftime('%H:00:00')
@@ -307,15 +324,31 @@ def processar_dados_chuva_simplificado(df_chuva, datas_desejadas, estacoes_desej
 
 @st.cache_data(show_spinner=False)
 def carregar_historico_consolidado():
-    """Carrega o historico_risco-final.csv usando estritamente o valor real da maré (AM)"""
+    """
+    Carrega o historico_risco-final.csv.
+    
+    Regra de negócio:
+    - Para datas >= DATA_INICIO_LOCAL (2026-05-01):
+        - AM_calc = max(AM_real, 1.0)
+        - Nivel_Risco_Valor = VP * AM_calc
+    - Para datas < 2026-05-01:
+        - AM_calc = AM_real
+        - Nivel_Risco_Valor = VP * AM_calc
+    
+    O arquivo histórico guarda AM = AM_real.
+    O piso de 1 m é apenas regra de cálculo, não altera o valor gravado.
+    """
     if not ARQUIVO_HISTORICO_FINAL.exists():
         return pd.DataFrame()
     
     df = pd.read_csv(ARQUIVO_HISTORICO_FINAL)
     df['data'] = pd.to_datetime(df['data']).dt.strftime('%Y-%m-%d')
     
+    # AM no histórico já é AM_real
     df['AM_real'] = df['AM']
     df['AM_calc'] = df['AM_real']
+    
+    # Aplica piso de 1 m apenas para cálculo do risco a partir de 2026-05-01
     aplicar_piso = pd.to_datetime(df['data']) >= pd.to_datetime(DATA_INICIO_LOCAL)
     df.loc[aplicar_piso & df['AM_calc'].notna() & (df['AM_calc'] < 1), 'AM_calc'] = 1
     

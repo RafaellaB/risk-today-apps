@@ -18,7 +18,7 @@ jobs:
       - name: Configurar Python e Instalar Dependências
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'  # ← MUDANÇA: Python 3.11 ao invés de 3.10
       - run: pip install requests pandas pytz numpy
         
       - name: ⚙️ Executar script de consolidação e limpeza
