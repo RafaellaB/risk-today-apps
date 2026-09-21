@@ -9,7 +9,8 @@ import requests_cache
 from retry_requests import retry
 from io import StringIO
 from pathlib import Path
-
+from datetime import datetime
+import pytz
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -258,40 +259,110 @@ def carregar_dados_mare_cache(caminho_am_data):
 
 
 @st.cache_data(ttl=60, show_spinner=False) 
-def carregar_dados_chuva_tempo_real():
-    """Lê o arquivo rotativo único do dia atual"""
-    if not ARQUIVO_TEMPO_REAL.exists():
-        return pd.DataFrame()
-    try:
-        df = pd.read_csv(ARQUIVO_TEMPO_REAL, encoding='utf-8')
-        
-        # ← NÃO renomear colunas - usar 'valor' e 'nome' diretamente
-        # if 'valor' in df.columns and 'valorMedida' not in df.columns:
-        #     df.rename(columns={'valor': 'valorMedida'}, inplace=True)
-        # if 'nome' in df.columns and 'nomeEstacao' not in df.columns:
-        #     df.rename(columns={'nome': 'nomeEstacao'}, inplace=True)
-        
-        # ← Mapear 'nome' via 'codestacao' se necessário
-        if 'codestacao' in df.columns:
-            mapa_estacoes = {
-                '261160614A': 'Campina do Barreto',
-                '261160609A': 'Torreão',
-                '261160623A': 'RECIFE - APAC',
-                '261160618A': 'Imbiribeira',
-                '261160603A': 'Dois Irmãos',
-            }
-            df['nome'] = df['codestacao'].astype(str).str.strip().map(mapa_estacoes)
-        
-        # ← Usar 'valor' diretamente
-        if 'valor' in df.columns:
-            df['valor'] = pd.to_numeric(df['valor'], errors='coerce')
-            df = df.dropna(subset=['valor'])
-        
-        df['datahora'] = pd.to_datetime(df['datahora'], format='mixed', errors='coerce')
-        return df.dropna(subset=['datahora'])
-    except Exception:
-        return pd.DataFrame()
+def carregar_dados_chuva_tempo_real(data_referencia=None):
+    """
+    Carrega o arquivo incremental de chuva do dia informado.
 
+    Exemplo:
+        chuva_recife_2026-09-21.csv
+
+    Se data_referencia não for informada, usa a data atual no fuso
+    America/Recife.
+
+    O arquivo contém dados brutos da API CEMADEN. Esta função normaliza
+    as colunas para o formato que a Aba 1 já espera:
+    - datahora
+    - codestacao
+    - nome
+    - valor
+    """
+    try:
+        fuso = pytz.timezone("America/Recife")
+
+        if data_referencia is None:
+            data_referencia = datetime.now(fuso).strftime("%Y-%m-%d")
+
+        arquivo_chuva = BASE_DIR / f"chuva_recife_{data_referencia}.csv"
+
+        if not arquivo_chuva.exists():
+            print(f"Arquivo de chuva não encontrado: {arquivo_chuva.name}")
+            return pd.DataFrame()
+
+        df = pd.read_csv(arquivo_chuva, encoding="utf-8")
+
+        if df.empty:
+            print(f"Arquivo de chuva vazio: {arquivo_chuva.name}")
+            return pd.DataFrame()
+
+        if "datahora" not in df.columns:
+            print(
+                f"Coluna datahora não encontrada em {arquivo_chuva.name}"
+            )
+            return pd.DataFrame()
+
+        # Mantém a data/hora da API como referência.
+        # O CSV já foi salvo no horário local de Recife pelo workflow.
+        df["datahora"] = pd.to_datetime(
+            df["datahora"],
+            errors="coerce",
+        )
+
+        df = df.dropna(subset=["datahora"]).copy()
+
+        # Garante que exista a coluna nome, usada no front atual.
+        if "nome" not in df.columns:
+            mapa_estacoes = {
+                "261160614A": "Campina do Barreto",
+                "261160609A": "Torreão",
+                "261160623A": "RECIFE - APAC",
+                "261160618A": "Imbiribeira",
+                "261160603A": "Dois Irmãos",
+            }
+
+            if "codestacao" in df.columns:
+                df["nome"] = (
+                    df["codestacao"]
+                    .astype(str)
+                    .str.strip()
+                    .map(mapa_estacoes)
+                )
+            else:
+                df["nome"] = None
+
+        # O CSV da API pode ter valor e/ou valorMedida.
+        # O front atual utiliza valor.
+        if "valor" not in df.columns:
+            if "valorMedida" in df.columns:
+                df["valor"] = pd.to_numeric(
+                    df["valorMedida"],
+                    errors="coerce",
+                ).fillna(0.0)
+            else:
+                df["valor"] = 0.0
+        else:
+            df["valor"] = pd.to_numeric(
+                df["valor"],
+                errors="coerce",
+            ).fillna(0.0)
+
+        if "codestacao" in df.columns:
+            df["codestacao"] = df["codestacao"].astype(str).str.strip()
+
+        # Mantém apenas registros da data solicitada.
+        df["data_ref"] = df["datahora"].dt.strftime("%Y-%m-%d")
+        df = df[df["data_ref"] == data_referencia].copy()
+        df = df.drop(columns=["data_ref"], errors="ignore")
+
+        df = df.sort_values(
+            by=["datahora", "codestacao"],
+            na_position="last",
+        )
+
+        return df
+
+    except Exception as erro:
+        print(f"Erro ao carregar dados de chuva em tempo real: {erro}")
+        return pd.DataFrame()
 
 def processar_dados_chuva_simplificado(df_chuva, datas_desejadas, estacoes_desejadas):
     if df_chuva.empty: return pd.DataFrame()
