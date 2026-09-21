@@ -545,7 +545,12 @@ with tab_hist:
                                             xaxis=dict(gridcolor='#3b556d' if is_dark else 'rgba(148,163,184,0.18)', zeroline=False),
                                             yaxis=dict(gridcolor='#3b556d' if is_dark else 'rgba(148,163,184,0.18)', zeroline=False)
                                         )
-                                        st.plotly_chart(fig_hist, use_container_width=True)
+                                        # ← CORREÇÃO: adicionar key única para evitar erro de ID duplicado
+                                        st.plotly_chart(
+                                            fig_hist,
+                                            use_container_width=True,
+                                            key=f"chart_hist_{estacao}_{dt}"
+                                        )
 
 
 # ==========================================
