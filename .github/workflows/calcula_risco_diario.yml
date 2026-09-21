@@ -28,7 +28,7 @@ jobs:
           python -m pip install pandas numpy requests pytz streamlit openmeteo-requests requests-cache retry-requests
 
       - name: Calcular risco de dias encerrados
-        run: python calcular_risco_cli.py
+        run: python calcular_risco_diario.py
 
       - name: Conferir histórico gerado
         run: |
