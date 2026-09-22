@@ -3,7 +3,7 @@ name: 📊 Consolidação Diária do Histórico de Risco
 on:
   schedule:
     # 03:15 UTC = aproximadamente 00:15 em Recife (UTC-3)
-    - cron: "15 3 * * *"
+    - cron: "37 3 * * *"
   workflow_dispatch:
 
 jobs:

@@ -32,9 +32,9 @@ ESTACOES_DESEJADAS = ["Campina do Barreto", "Torreão", "RECIFE - APAC", "Imbiri
 # Mapeamento de estações para códigos CEMADEN
 ESTACOES_CODIGOS_CEMADEN = {
     "Campina do Barreto": "261160614A",
-    "Torreão": "261160609A",
+    "Torreão": "261160618A",
     "RECIFE - APAC": "261160623A",
-    "Imbiribeira": "261160618A",
+    "Imbiribeira": "261160609A", 
     "Dois Irmãos": "261160603A",
 }
 
@@ -313,9 +313,9 @@ def carregar_dados_chuva_tempo_real(data_referencia=None):
         if "nome" not in df.columns:
             mapa_estacoes = {
                 "261160614A": "Campina do Barreto",
-                "261160609A": "Torreão",
+                "261160618A": "Torreão", 
                 "261160623A": "RECIFE - APAC",
-                "261160618A": "Imbiribeira",
+                "261160609A": "Imbiribeira",
                 "261160603A": "Dois Irmãos",
             }
 
@@ -393,7 +393,7 @@ def processar_dados_chuva_simplificado(df_chuva, datas_desejadas, estacoes_desej
     return df_vp
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl="15m", show_spinner=False) 
 def carregar_historico_consolidado():
     """
     Carrega o historico_risco-final.csv.
