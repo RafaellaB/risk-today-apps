@@ -25,9 +25,9 @@ ARQUIVO_HISTORICO = BASE_DIR / "historico_risco-final.csv"
 
 MAPA_ESTACOES = {
     "261160614A": "Campina do Barreto",
-    "261160609A": "Torreão",
+    "261160618A": "Torreão", 
     "261160623A": "RECIFE - APAC",
-    "261160618A": "Imbiribeira",
+    "261160609A": "Imbiribeira",
     "261160603A": "Dois Irmãos",
 }
 
