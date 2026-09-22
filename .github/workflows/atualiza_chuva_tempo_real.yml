@@ -56,4 +56,5 @@ jobs:
           fi
 
           git commit -m "Atualiza chuva incremental [skip ci]"
-          git push
+          git pull --rebase origin main
+          git push origin main
