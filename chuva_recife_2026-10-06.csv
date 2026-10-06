@@ -1,0 +1,4 @@
+cidade,codestacao,datahora,id_sensor,latitude,longitude,nome,offset,qualificacao,uf,valor
+RECIFE,261160614A,2026-10-06 04:30:00,10,-8.013,-34.881,Campina do Barreto,,0000,PE,0.0
+RECIFE,261160614A,2026-10-06 05:30:00,10,-8.013,-34.881,Campina do Barreto,,0000,PE,0.0
+RECIFE,261160614A,2026-10-06 06:30:00,10,-8.013,-34.881,Campina do Barreto,,0000,PE,0.0
