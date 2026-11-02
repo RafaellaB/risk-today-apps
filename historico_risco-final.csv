@@ -55478,3 +55478,6 @@ data,hora_ref,nomeEstacao,VP,AM,Nivel_Risco_Valor,Classificacao_Risco,AM_real,AM
 2026-10-31,20:00:00,Dois Irmãos,0.0,1.95,0.0,Baixo,1.95,1.95
 2026-10-31,21:00:00,Dois Irmãos,0.0,1.77,0.0,Baixo,1.77,1.77
 2026-10-31,22:00:00,Dois Irmãos,0.0,1.56,0.0,Baixo,1.56,1.56
+2026-11-01,02:00:00,Dois Irmãos,0.0,0.71,0.0,Baixo,0.71,1.0
+2026-11-01,03:00:00,Dois Irmãos,0.0,0.7,0.0,Baixo,0.7,1.0
+2026-11-01,04:00:00,Dois Irmãos,0.0,0.88,0.0,Baixo,0.88,1.0
