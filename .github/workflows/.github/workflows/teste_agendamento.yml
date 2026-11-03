@@ -1,0 +1,21 @@
+name: Diagnóstico do agendamento
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Registrar execução
+        run: |
+          echo "Evento: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Horário de início desta etapa:"
+          date -u '+%Y-%m-%d %H:%M:%S UTC
