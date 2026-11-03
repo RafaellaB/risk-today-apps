@@ -11,6 +11,7 @@ permissions:
 jobs:
   diagnostico:
     runs-on: ubuntu-latest
+
     steps:
       - name: Registrar execução
         run: |
@@ -18,4 +19,4 @@ jobs:
           echo "Branch: ${{ github.ref }}"
           echo "Commit: ${{ github.sha }}"
           echo "Horário de início desta etapa:"
-          date -u '+%Y-%m-%d %H:%M:%S UTC
+          date -u '+%Y-%m-%d %H:%M:%S UTC'
