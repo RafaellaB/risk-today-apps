@@ -18,6 +18,7 @@ from utils import (
     DATA_INICIO_LOCAL,
     ESTACOES_DESEJADAS,
     COORDENADAS_ESTACOES,
+    mapear_nome_estacao,
     obter_token_cemaden,
     carregar_acumulados_api_cemaden,
     buscar_previsao_noaa_openmeteo,
@@ -38,8 +39,8 @@ st.set_page_config(
 )
 
 
-if "bairro_selecionado" not in st.session_state:
-    st.session_state["bairro_selecionado"] = None
+if "bairro_selecionado" not in st.session_state or st.session_state["bairro_selecionado"] is None:
+    st.session_state["bairro_selecionado"] = ESTACOES_DESEJADAS[0]
 
 
 # -----------------------------
@@ -186,9 +187,6 @@ RISCO_UI = {
 if "idioma_ativo" not in st.session_state:
     st.session_state["idioma_ativo"] = "Português"
 
-if "bairro_selecionado" not in st.session_state:
-    st.session_state["bairro_selecionado"] = ESTACOES_DESEJADAS[0]
-
 
 t = TRADUCOES[st.session_state["idioma_ativo"]]
 is_dark = st.session_state.get("is_dark_theme", True)
@@ -321,29 +319,15 @@ with tab_mapa:
 
     df_am = carregar_dados_mare_cache(ARQUIVO_MARE_AM)
 
-    # ALTERADO:
-    # Carrega o arquivo incremental produzido pelo workflow:
-    # chuva_recife_YYYY-MM-DD.csv
     df_chuva_raw = carregar_dados_chuva_tempo_real(data_hoje_str)
 
     df_final = pd.DataFrame()
 
     if not df_chuva_raw.empty and not df_am.empty:
-        mapa_estacoes = {
-            "261160614A": "Campina do Barreto",
-            "261160618A": "Torreão",
-            "261160623A": "RECIFE - APAC",
-            "261160609A": "Imbiribeira", 
-            "261160603A": "Dois Irmãos",
-        }
-
         if "codestacao" in df_chuva_raw.columns:
-            df_chuva_raw["nome"] = (
-                df_chuva_raw["codestacao"]
-                .astype(str)
-                .str.strip()
-                .map(mapa_estacoes)
-            )
+            df_chuva_raw["nome"] = df_chuva_raw["codestacao"].apply(mapear_nome_estacao)
+        elif "nome" in df_chuva_raw.columns:
+            df_chuva_raw["nome"] = df_chuva_raw["nome"].apply(mapear_nome_estacao)
 
         datas_processar = sorted(
             df_chuva_raw["datahora"]
@@ -365,11 +349,8 @@ with tab_mapa:
             how="left",
         )
 
-        # Mantém o valor real no diagrama.
         df_final["AM_real"] = df_final["AM"]
 
-        # Mantém a regra de negócio:
-        # maré abaixo de 1 m recebe 1 m SOMENTE para calcular risco.
         df_final["AM_calc"] = df_final["AM_real"].copy()
 
         df_final.loc[
@@ -389,10 +370,6 @@ with tab_mapa:
             bins=bins,
             labels=["Baixo", "Moderado", "Moderado Alto", "Alto"],
         )
-
-        # IMPORTANTE:
-        # Não chama mais salvar_risco_no_csv().
-        # O arquivo de chuva diário é bruto e pertence ao workflow incremental.
 
     if df_final.empty:
         st.warning(t["aguardando_dados"])
@@ -449,12 +426,7 @@ with tab_mapa:
                 not df_acumulados_api.empty
                 and "codestacao" in df_acumulados_api.columns
             ):
-                df_acumulados_api["nome"] = (
-                    df_acumulados_api["codestacao"]
-                    .astype(str)
-                    .str.strip()
-                    .map(mapa_estacoes)
-                )
+                df_acumulados_api["nome"] = df_acumulados_api["codestacao"].apply(mapear_nome_estacao)
 
                 ac_bairro = df_acumulados_api[
                     df_acumulados_api["nome"] == bairro

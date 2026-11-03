@@ -9,27 +9,21 @@ import requests_cache
 from retry_requests import retry
 from io import StringIO
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 BASE_DIR = Path(__file__).resolve().parent
 
-
 # Constantes de dados
-
 SUFIXO_ARQUIVO_CHUVAS = '.csv'
 ARQUIVO_MARE_AM = BASE_DIR / 'tide' / 'mare_calculada_hora_em_hora_ano-completo.csv'
 CSV_DELIMITADOR = ',' 
 COLUNAS_NO_CSV_CHUVAS = ['datahora', 'nome', 'valor'] 
 ARQUIVO_HISTORICO_FINAL = BASE_DIR / 'historico_risco-final.csv'
-ARQUIVO_TEMPO_REAL = BASE_DIR / 'chuva_tempo_real.csv'
 DATA_INICIO_LOCAL = '2026-05-01'
-
 
 ESTACOES_DESEJADAS = ["Campina do Barreto", "Torreão", "RECIFE - APAC", "Imbiribeira", "Dois Irmãos"]
 
-
-# Mapeamento de estações para códigos CEMADEN
 ESTACOES_CODIGOS_CEMADEN = {
     "Campina do Barreto": "261160614A",
     "Torreão": "261160618A",
@@ -38,6 +32,13 @@ ESTACOES_CODIGOS_CEMADEN = {
     "Dois Irmãos": "261160603A",
 }
 
+MAPA_ESTACOES_REVERSO = {
+    "261160614A": "Campina do Barreto", "261160614": "Campina do Barreto",
+    "261160618A": "Torreão", "261160618": "Torreão",
+    "261160623A": "RECIFE - APAC", "261160623": "RECIFE - APAC",
+    "261160609A": "Imbiribeira", "261160609": "Imbiribeira",
+    "261160603A": "Dois Irmãos", "261160603": "Dois Irmãos",
+}
 
 COORDENADAS_ESTACOES = {
     "Campina do Barreto": [-8.013000, -34.881000],
@@ -47,6 +48,16 @@ COORDENADAS_ESTACOES = {
     "Dois Irmãos": [-8.018378, -34.947058]
 }
 
+def mapear_nome_estacao(codestacao_valor):
+    """Mapeia qualquer variação de código de estação para o nome correto."""
+    if pd.isna(codestacao_valor):
+        return None
+    cod_str = str(codestacao_valor).strip().upper()
+    if cod_str in MAPA_ESTACOES_REVERSO:
+        return MAPA_ESTACOES_REVERSO[cod_str]
+    if cod_str + "A" in MAPA_ESTACOES_REVERSO:
+        return MAPA_ESTACOES_REVERSO[cod_str + "A"]
+    return None
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def obter_token_cemaden():
@@ -66,125 +77,53 @@ def obter_token_cemaden():
     except Exception: pass
     return None
 
-
-@st.cache_data(ttl=300, show_spinner=False)
-def carregar_dados_recentes_api_cemaden(token, codestacao='261160614A'):
-    """
-    Carrega dados RECENTES (brutos, múltiplas medições) de UMA estação específica.
-    Endpoint: /pcds/pcds-dados-recentes
-    Usado para: alimentar o arquivo chuva_tempo_real.csv e cálculos horários
-    """
-    if not token: return pd.DataFrame()
-    
-    url = 'https://sws.cemaden.gov.br/PED/rest/pcds/pcds-dados-recentes'
-    headers = {'token': token}
-    params = {
-        'codestacao': codestacao,
-        'rede': '11',
-        'uf': 'PE',
-        'formato': 'CSV'
-    }
-    
-    try:
-        response = requests.get(url, headers=headers, params=params, timeout=15)
-        if response.status_code == 200 and response.text.strip():
-            df = pd.read_csv(StringIO(response.text))
-            return df
-    except Exception as e:
-        print(f"Erro ao carregar CSV do CEMADEN (dados recentes): {e}")
-    return pd.DataFrame()
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def carregar_todas_estacoes_recentes(token):
-    """
-    Carrega dados RECENTES de TODAS as estações desejadas.
-    Retorna DataFrame concatenado.
-    Usado pela aba 1 (tempo real)
-    """
-    if not token: return pd.DataFrame()
-    
-    dfs_estacoes = []
-    
-    for nome_estacao, cod_estacao in ESTACOES_CODIGOS_CEMADEN.items():
-        df = carregar_dados_recentes_api_cemaden(token, codestacao=cod_estacao)
-        if not df.empty:
-            # ← NÃO criar 'nomeEstacao' - a API já retorna 'nome'
-            dfs_estacoes.append(df)
-    
-    if dfs_estacoes:
-        return pd.concat(dfs_estacoes, ignore_index=True)
-    
-    return pd.DataFrame()
-
-
 @st.cache_data(ttl=300, show_spinner=False)
 def carregar_acumulados_api_cemaden(token, codibge='2611606'):
-    """
-    Carrega dados ACUMULADOS (totais por estação) de TODAS as estações de uma cidade.
-    Endpoint: /pcds-acum/acumulados-recentes
-    Usado para: cards de acumulados 12h e 24h
-    """
     if not token: return pd.DataFrame()
-    
     url = 'https://sws.cemaden.gov.br/PED/rest/pcds-acum/acumulados-recentes'
     headers = {'token': token}
     params = {'codibge': codibge, 'formato': 'CSV'}
-    
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
         if response.status_code == 200 and response.text.strip():
-            df = pd.read_csv(StringIO(response.text))
-            return df
+            return pd.read_csv(StringIO(response.text))
     except Exception as e:
-        print(f"Erro ao carregar CSV do CEMADEN (acumulados): {e}")
+        print(f"Erro ao carregar CSV acumulados: {e}")
     return pd.DataFrame()
-
 
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_previsao_noaa_openmeteo(lat=-8.0539, lon=-34.8811):
     try:
         cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
         retry_session = retry(cache_session, retries=3, backoff_factor=0.2)
-        
         url = "https://api.open-meteo.com/v1/forecast"
         params = {
-            "latitude": lat,
-            "longitude": lon,
+            "latitude": lat, "longitude": lon,
             "hourly": "temperature_2m,precipitation_probability,precipitation,weather_code",
-            "models": "ncep_gfs_seamless",
-            "timezone": "America/Recife",
-            "forecast_days": 2,
+            "models": "ncep_gfs_seamless", "timezone": "America/Recife", "forecast_days": 2,
         }
-        
         response = retry_session.get(url, params=params, timeout=15)
         if response.status_code == 200:
             data = response.json()
             if "hourly" in data:
                 hourly = data["hourly"]
-                df_hourly = pd.DataFrame({
+                return pd.DataFrame({
                     "date": pd.to_datetime(hourly["time"]).tz_localize("America/Recife", ambiguous="NaT", nonexistent="shift_forward"),
                     "temperature_2m": hourly["temperature_2m"],
                     "precipitation_probability": hourly["precipitation_probability"],
                     "precipitation": hourly["precipitation"],
                     "weather_code": hourly["weather_code"]
                 })
-                return df_hourly
     except Exception as e:
-        print(f"Erro ao buscar NOAA para lat {lat}, lon {lon}: {e}")
+        print(f"Erro ao buscar NOAA: {e}")
         
     horas_dummy = pd.date_range(start=pd.Timestamp.now(tz="America/Recife"), periods=24, freq="h")
     return pd.DataFrame({
-        "date": horas_dummy,
-        "temperature_2m": [28.0] * 24,
-        "precipitation_probability": [0.0] * 24,
-        "precipitation": [0.0] * 24,
-        "weather_code": [0] * 24
+        "date": horas_dummy, "temperature_2m": [28.0]*24,
+        "precipitation_probability": [0.0]*24, "precipitation": [0.0]*24, "weather_code": [0]*24
     })
 
-
 def interpretar_codigo_clima(codigo, probabilidade_chuva=0, volume_chuva=0.0, hora_atual=12, idioma="Português"):
-    import pytz
     eh_noite = hora_atual >= 18 or hora_atual < 6
     if probabilidade_chuva > 20 or volume_chuva > 0.1:
         return "🌧️", ("Rain" if idioma == "English" else "Chuva")
@@ -203,7 +142,6 @@ def interpretar_codigo_clima(codigo, probabilidade_chuva=0, volume_chuva=0.0, ho
     else:
         return ("🌙" if eh_noite else "☀️"), "Fair" if idioma == "English" else "Bom"
 
-
 @st.cache_data(ttl=300, show_spinner=False)
 def buscar_umidade_openmeteo(lat, lon):
     url = "https://api.open-meteo.com/v1/forecast"
@@ -218,9 +156,7 @@ def buscar_umidade_openmeteo(lat, lon):
     except Exception: pass
     return None
 
-
 def extrair_umidade_hora_atual(dados_json, datahora_alvo):
-    import pytz
     if not dados_json or "hourly" not in dados_json: 
         return 0.0, 0.0, 0.0, 0.0
     try:
@@ -233,20 +169,16 @@ def extrair_umidade_hora_atual(dados_json, datahora_alvo):
     except Exception:
         return 0.0, 0.0, 0.0, 0.0
 
-
 @st.cache_data(show_spinner=False)
 def carregar_dados_mare_cache(caminho_am_data):
     try:
         caminho_path = Path(caminho_am_data)
         if not caminho_path.exists():
             return pd.DataFrame()
-        
         with open(caminho_path, 'r', encoding='utf-8') as f:
             conteudo = f.read()
-
         linhas = [l for l in conteudo.splitlines() if not l.startswith(('<<<<', '====', '>>>>')) and l.strip()]
         if not linhas: return pd.DataFrame()
-        
         df = pd.read_csv(StringIO("\n".join(linhas)), sep=';' if ';' in linhas[0] else ',', decimal=',', encoding='utf-8')
         df = df.rename(columns={'Hora_Exata': 'datahora', 'datahora': 'datahora', 'Altura_m': 'AM', 'altura': 'AM', 'AM': 'AM'})
         df['datahora'] = pd.to_datetime(df['datahora'].astype(str).str.split(';').str[0], errors='coerce')
@@ -255,109 +187,58 @@ def carregar_dados_mare_cache(caminho_am_data):
         df['hora_ref'] = df['datahora'].dt.strftime('%H:00:00')
         df['AM'] = pd.to_numeric(df['AM'].astype(str).str.replace(',', '.'), errors='coerce')
         return df[['data', 'hora_ref', 'AM']]
-    except: return pd.DataFrame()
+    except Exception: return pd.DataFrame()
 
-
-@st.cache_data(ttl=60, show_spinner=False) 
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_dados_chuva_tempo_real(data_referencia=None):
-    """
-    Carrega o arquivo incremental de chuva do dia informado.
-
-    Exemplo:
-        chuva_recife_2026-09-21.csv
-
-    Se data_referencia não for informada, usa a data atual no fuso
-    America/Recife.
-
-    O arquivo contém dados brutos da API CEMADEN. Esta função normaliza
-    as colunas para o formato que a Aba 1 já espera:
-    - datahora
-    - codestacao
-    - nome
-    - valor
-    """
+    """Carrega dados de chuva diários garantindo tratamento robusto de separadores, nomes e valores."""
     try:
         fuso = pytz.timezone("America/Recife")
-
         if data_referencia is None:
             data_referencia = datetime.now(fuso).strftime("%Y-%m-%d")
 
         arquivo_chuva = BASE_DIR / f"chuva_recife_{data_referencia}.csv"
-
         if not arquivo_chuva.exists():
-            print(f"Arquivo de chuva não encontrado: {arquivo_chuva.name}")
             return pd.DataFrame()
 
-        df = pd.read_csv(arquivo_chuva, encoding="utf-8")
+        # Leitura com autodetecção de separador (; ou ,) e tratamento de BOM
+        try:
+            df = pd.read_csv(arquivo_chuva, sep=None, engine="python", encoding="utf-8-sig")
+        except Exception:
+            df = pd.read_csv(arquivo_chuva, sep=";", encoding="utf-8-sig")
 
         if df.empty:
-            print(f"Arquivo de chuva vazio: {arquivo_chuva.name}")
             return pd.DataFrame()
+
+        df.columns = df.columns.str.lower().str.strip()
 
         if "datahora" not in df.columns:
-            print(
-                f"Coluna datahora não encontrada em {arquivo_chuva.name}"
-            )
             return pd.DataFrame()
 
-        # Mantém a data/hora da API como referência.
-        # O CSV já foi salvo no horário local de Recife pelo workflow.
-        df["datahora"] = pd.to_datetime(
-            df["datahora"],
-            errors="coerce",
-        )
-
+        df["datahora"] = pd.to_datetime(df["datahora"], errors="coerce")
         df = df.dropna(subset=["datahora"]).copy()
 
-        # Garante que exista a coluna nome, usada no front atual.
-        if "nome" not in df.columns:
-            mapa_estacoes = {
-                "261160614A": "Campina do Barreto",
-                "261160618A": "Torreão", 
-                "261160623A": "RECIFE - APAC",
-                "261160609A": "Imbiribeira",
-                "261160603A": "Dois Irmãos",
-            }
-
-            if "codestacao" in df.columns:
-                df["nome"] = (
-                    df["codestacao"]
-                    .astype(str)
-                    .str.strip()
-                    .map(mapa_estacoes)
-                )
+        # Identifica e normaliza coluna de medição
+        col_valor = "valormedida" if "valormedida" in df.columns else ("valor" if "valor" in df.columns else None)
+        if col_valor:
+            if df[col_valor].dtype == "object":
+                df["valor"] = df[col_valor].astype(str).str.replace(",", ".", regex=False)
             else:
-                df["nome"] = None
-
-        # O CSV da API pode ter valor e/ou valorMedida.
-        # O front atual utiliza valor.
-        if "valor" not in df.columns:
-            if "valorMedida" in df.columns:
-                df["valor"] = pd.to_numeric(
-                    df["valorMedida"],
-                    errors="coerce",
-                ).fillna(0.0)
-            else:
-                df["valor"] = 0.0
+                df["valor"] = df[col_valor]
+            df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
         else:
-            df["valor"] = pd.to_numeric(
-                df["valor"],
-                errors="coerce",
-            ).fillna(0.0)
+            df["valor"] = 0.0
 
+        # Mapeia nome da estação
         if "codestacao" in df.columns:
-            df["codestacao"] = df["codestacao"].astype(str).str.strip()
+            df["nome"] = df["codestacao"].apply(mapear_nome_estacao)
+        elif "nomeestacao" in df.columns:
+            df["nome"] = df["nomeestacao"].apply(mapear_nome_estacao)
+        elif "nome" in df.columns:
+            df["nome"] = df["nome"].apply(mapear_nome_estacao)
 
-        # Mantém apenas registros da data solicitada.
-        df["data_ref"] = df["datahora"].dt.strftime("%Y-%m-%d")
-        df = df[df["data_ref"] == data_referencia].copy()
-        df = df.drop(columns=["data_ref"], errors="ignore")
-
-        df = df.sort_values(
-            by=["datahora", "codestacao"],
-            na_position="last",
-        )
-
+        df = df.dropna(subset=["nome"]).copy()
+        df = df.sort_values(by=["datahora"], na_position="last")
         return df
 
     except Exception as erro:
@@ -365,19 +246,18 @@ def carregar_dados_chuva_tempo_real(data_referencia=None):
         return pd.DataFrame()
 
 def processar_dados_chuva_simplificado(df_chuva, datas_desejadas, estacoes_desejadas):
-    if df_chuva.empty: return pd.DataFrame()
+    """Calcula VP por hora mantendo a regra geométrica intacta."""
+    if df_chuva.empty:
+        return pd.DataFrame()
     
-    # ← Usar 'nome' ao invés de 'nomeEstacao'
     df = df_chuva[df_chuva['nome'].isin(estacoes_desejadas)].copy()
-    df['data'] = df['datahora'].dt.date.astype(str)
-    df = df[df['data'].isin(datas_desejadas)]
-    if df.empty: return pd.DataFrame()
+    if df.empty:
+        return pd.DataFrame()
+
     df = df.set_index('datahora').sort_index()
     resultados = []
     
-    # ← Usar 'nome' ao invés de 'nomeEstacao'
     for estacao, grupo in df.groupby('nome'):
-        # ← Usar 'valor' ao invés de 'valorMedida'
         temp_df = pd.DataFrame({
             'chuva_10min': grupo['valor'].rolling('10min').sum(), 
             'chuva_2h': grupo['valor'].rolling('2h').sum()
@@ -387,39 +267,27 @@ def processar_dados_chuva_simplificado(df_chuva, datas_desejadas, estacoes_desej
         agregado['nome'] = estacao
         resultados.append(agregado)
     
+    if not resultados:
+        return pd.DataFrame()
+
     df_vp = pd.concat(resultados).reset_index()
     df_vp['data'] = df_vp['datahora'].dt.strftime('%Y-%m-%d')
     df_vp['hora_ref'] = df_vp['datahora'].dt.strftime('%H:00:00')
-    return df_vp
 
+    df_vp = df_vp[df_vp['data'].isin(datas_desejadas)].copy()
+    return df_vp
 
 @st.cache_data(ttl="15m", show_spinner=False) 
 def carregar_historico_consolidado():
-    """
-    Carrega o historico_risco-final.csv.
-    
-    Regra de negócio:
-    - Para datas >= DATA_INICIO_LOCAL (2026-05-01):
-        - AM_calc = max(AM_real, 1.0)
-        - Nivel_Risco_Valor = VP * AM_calc
-    - Para datas < 2026-05-01:
-        - AM_calc = AM_real
-        - Nivel_Risco_Valor = VP * AM_calc
-    
-    O arquivo histórico guarda AM = AM_real.
-    O piso de 1 m é apenas regra de cálculo, não altera o valor gravado.
-    """
     if not ARQUIVO_HISTORICO_FINAL.exists():
         return pd.DataFrame()
     
     df = pd.read_csv(ARQUIVO_HISTORICO_FINAL)
     df['data'] = pd.to_datetime(df['data']).dt.strftime('%Y-%m-%d')
     
-    # AM no histórico já é AM_real
     df['AM_real'] = df['AM']
     df['AM_calc'] = df['AM_real']
     
-    # Aplica piso de 1 m apenas para cálculo do risco a partir de 2026-05-01
     aplicar_piso = pd.to_datetime(df['data']) >= pd.to_datetime(DATA_INICIO_LOCAL)
     df.loc[aplicar_piso & df['AM_calc'].notna() & (df['AM_calc'] < 1), 'AM_calc'] = 1
     

@@ -32,17 +32,6 @@ jobs:
           CEMADEN_PASS: ${{ secrets.CEMADEN_PASS }}
         run: python atualizar_dados.py
 
-      - name: Verificar arquivos incrementais
-        run: |
-          echo "=== Arquivos de chuva disponíveis ==="
-          ls -lah chuva_recife_*.csv || true
-
-          echo ""
-          echo "=== Últimas 20 linhas do arquivo de hoje ==="
-          ARQUIVO_HOJE="chuva_recife_$(TZ=America/Recife date +%F).csv"
-          echo "Arquivo: ${ARQUIVO_HOJE}"
-          tail -n 20 "${ARQUIVO_HOJE}" || true
-
       - name: Commit e push dos CSVs incrementais
         run: |
           git config --global user.name "github-actions[bot]"
@@ -55,6 +44,6 @@ jobs:
             exit 0
           fi
 
-          git commit -m "Atualiza chuva incremental [skip ci]"
+          git commit -m "Atualiza chuva incremental"
           git pull --rebase origin main
           git push origin main
